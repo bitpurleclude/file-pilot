@@ -326,6 +326,93 @@ API/模块接口（草案）
 - 高级设置可手动覆盖
  - 默认档位：高质量
 
+工程与代码规范（v0.42）
+- 架构分层：Renderer(UI) → IPC Client → Preload → Main Handler → UseCase → Domain → Infra Adapter。
+- 依赖方向：UI 仅依赖 application/shared；domain 禁止依赖 infra，必须单向流动。
+- 进程职责：渲染进程禁止直接访问 fs/path/sqlite/keytar，所有系统能力统一经 IPC。
+- IPC 原则：白名单通道 + zod schema 校验 + 统一错误码返回格式。
+- 业务约束：Main Handler 只做参数校验与调度，业务编排必须在 UseCase 层。
+
+文件夹规范（v0.42）
+- 推荐目录（M1）：
+```text
+file-pilot/
+  apps/desktop/
+    electron/
+      main/        # app 生命周期、窗口、托盘、IPC 注册、更新器
+      preload/     # contextBridge 白名单 API
+      updater/     # GitHub Releases 双通道更新逻辑
+    src/
+      app/         # 路由与全局 Provider
+      pages/       # 页面级容器
+      features/    # 功能域 UI（session/planner/executor/settings）
+      components/  # 可复用组件
+      styles/      # Tailwind 入口与主题变量
+    core/          # UseCase + Domain（纯业务规则）
+    infra/         # SQLite/LLM/keytar/文件系统/日志适配器
+    shared/        # 类型、错误码、常量、schema、IPC contract
+    tests/         # unit/integration/e2e
+  docs/
+    architecture/
+    conventions/
+    release/
+```
+- 单文件建议：普通文件不超过 300 行；页面容器不超过 400 行。
+
+函数调用规范（v0.42）
+- 单一职责：一个函数只承担一种核心职责（校验/转换/持久化/编排需拆分）。
+- 长度与复杂度：单函数不超过 60 行，圈复杂度不超过 10。
+- 参数约束：参数超过 4 个必须改为对象参数并进行 schema 校验。
+- 调用深度：业务调用链深度不超过 4 层，超出必须重构。
+- 命名规范：命令函数使用动词（create/update/delete），查询函数使用 get/list/find。
+- 副作用隔离：Domain 优先纯函数；副作用仅允许在 UseCase/Infra 层发生。
+- 布尔参数治理：禁止语义不明的多个布尔位参数，改为枚举或选项对象。
+
+类型与静态检查规范（v0.42）
+- TypeScript：strict、noUncheckedIndexedAccess、exactOptionalPropertyTypes 必须开启。
+- 禁止 any：默认开启 no-explicit-any，确需例外需注释说明原因。
+- Promise 约束：开启 no-floating-promises、no-misused-promises。
+- 导入规范：统一 type-only import，禁止循环依赖（import/no-cycle）。
+- 边界约束：禁止跨层越权 import（UI 不得直接 import infra）。
+
+ESLint 与格式化门禁（v0.42）
+- 建议强制规则：max-lines(300)、max-lines-per-function(60)、complexity(10)、max-params(4)。
+- 质量门禁：提交前必须通过 typecheck + lint + unit。
+- CI 门禁：PR 合并前必须通过 typecheck + lint + unit + integration。
+
+错误处理与可观测性规范（v0.42）
+- 统一错误模型：AppError(code, message, details, cause, traceId, sessionId)。
+- 错误分级：USER_（可提示）、SYSTEM_（可重试）、FATAL_（需人工介入）。
+- 返回协议：IPC 统一 { ok: true, data } / { ok: false, error }。
+- LLM 容错：20 秒超时 + 2 次重试 + 指数退避，仅网关层允许重试。
+- 执行审计：所有执行动作记录计划、结果、回滚信息，支持追溯。
+
+测试规范（v0.42）
+- Unit：覆盖路径规划、命名规范化、规则匹配、冲突决策等核心纯函数。
+- Integration：覆盖 IPC 合约、SQLite 读写、凭据回退链路、LLM 网关容错。
+- E2E：覆盖拖拽 → Dry-run → 执行 → 撤销主流程。
+- 覆盖率目标：M1 的 core/usecase 模块行覆盖率不低于 70%。
+- 测试数据：使用临时目录沙箱，禁止污染真实用户目录。
+
+性能与并发规范（v0.42）
+- 队列化：文件解析、hash 计算、LLM 调用分别设置并发上限。
+- 可取消：长任务需支持 AbortSignal，中断会话时及时回收任务。
+- 分批处理：批量任务按分片执行并落盘 checkpoint，降低中断风险。
+- 主进程负载：CPU 重任务优先 worker 线程，避免阻塞 UI/IPC。
+
+安全与隐私规范（v0.42）
+- 路径安全：先 canonicalize 再做白名单校验，防目录穿越。
+- 凭据安全：优先 keytar，失败回退本地加密文件（AES-GCM + 版本号）。
+- 日志默认：匿名化开启，导出默认 JSON，保存下载目录，命名规则固定。
+- 数据保留：日志永久保留但需提供体积阈值告警与手动清理入口。
+
+协作与发布规范（v0.42）
+- 分支命名：feat/*、fix/*、chore/*；主分支保持可发布状态。
+- 提交规范：feat/fix/refactor/docs/chore/test 前缀。
+- Beta 发布：手动 tag 触发 prerelease（beta 通道）。
+- 正式发布：通过人工验收后发布 stable tag/release。
+- 更新通道：beta 客户端仅跟踪 beta，stable 客户端仅跟踪 stable。
+
 待确认问题（v0.40）
 已确认（v0.40）
 - 预设档位默认值：高质量。
