@@ -64,6 +64,13 @@
 - 故障采集：本地崩溃报告 + 用户手动导出上传。
 - 备份恢复：设置与规则每日增量备份，支持一键恢复。
 
+已确认决策（2026-02-12，配置与文档治理）
+- 配置集中化：业务代码禁止写死参数，统一收敛到 shared/config（可拆分多文件）。
+- 配置分层：defaults -> user settings -> session overrides，加载时做 schema 校验。
+- 文档标准：采用 docs/architecture、docs/conventions、docs/release、docs/adr 规范结构。
+- 变更要求：每次代码修改必须同步至少一类文档（变更说明/接口文档/配置文档）。
+- PR 门禁：源码变更但无文档变更时阻断，除非标注 docs-exempt 并说明理由。
+
 已确认需求与约束
 - LLM：云端模型可接受，默认 LLM 优先（本地规则仅辅助/校验）。
 - 文件解析范围：txt / md / pdf / docx / xlsx。
@@ -254,6 +261,8 @@ API/模块接口（草案）
 - 截断策略：头+尾+关键词段落混合截断
 - 超限解析：仅元数据+文件名特征
 - 并发默认值：hash=4、解析=3、LLM=2
+- 配置集中化：业务参数统一读取 shared/config（禁止写死常量）
+- 配置分层：defaults -> user settings -> session overrides
 - LLM 解释：简短 + 可展开
 - LLM 额度上限：关闭（可选开启）
 - LLM 调用容错：超时 20 秒 + 重试 2 次
@@ -298,6 +307,9 @@ API/模块接口（草案）
 - 性能验收目标（100 文件）：Dry-run < 8 秒，执行 < 20 秒
 - Beta 升 Stable 门槛：连续 7 天无 P0/P1 且回滚成功率 > 99%
 - 发布门禁：typecheck/lint/unit/integration/e2e 全绿
+- 文档标准：docs/architecture + docs/conventions + docs/release + docs/adr
+- 文档更新要求：每次代码修改至少同步一类文档
+- 文档门禁：源码变更无文档更新默认阻断（docs-exempt 需说明）
 - 迁移影响提示：仅高风险
 - 安全模式：默认开启（目录白名单）
 
@@ -498,6 +510,25 @@ ESLint 与格式化门禁（v0.42）
 - 发布门禁：typecheck、lint、unit、integration、e2e 必须全部通过。
 - 故障采集：默认本地崩溃报告，用户手动导出并上传。
 - 备份恢复：设置与规则每日增量备份，支持一键恢复。
+
+配置与文档治理规范（v0.46）
+- 参数治理：阈值、超时、重试、并发、路径、开关、文案等禁止在业务代码中写死。
+- 配置组织：按领域拆分为 analyzer.config、llm.config、executor.config、updater.config、ui.config。
+- 配置加载顺序：defaults -> user settings -> session overrides，加载后统一 schema 校验。
+- 配置可追溯：每次配置变更记录来源、时间、版本与生效范围。
+- 文档结构：
+```text
+/docs
+  /architecture   # 架构与模块边界
+  /conventions    # 代码规范、命名规范、错误码规范
+  /release        # 发布流程、回滚流程、验收清单
+  /adr            # 关键决策记录（Architecture Decision Records）
+```
+- 文档同步要求：每次功能开发、修复、重构必须更新对应文档条目。
+- 文档最小更新集：至少包含“变更内容、影响范围、配置变更、回滚说明、测试证据”。
+- PR 检查项：新增 mandatory checklist，必须勾选“代码变更已同步文档”。
+- CI 门禁：源码文件变更且 docs 无变化时默认失败；如 docs-exempt 需填写理由。
+- 例外策略：仅注释/格式化等无行为变更可申请 docs-exempt。
 
 待确认问题（v0.40）
 已确认（v0.40）
