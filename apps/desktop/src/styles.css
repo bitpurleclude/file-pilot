@@ -1,0 +1,52 @@
+:root {
+  font-family: "Segoe UI", "PingFang SC", sans-serif;
+  color: #102335;
+  background: linear-gradient(135deg, #f7fafc 0%, #dbeafe 100%);
+}
+
+body {
+  margin: 0;
+}
+
+.container {
+  max-width: 920px;
+  margin: 0 auto;
+  padding: 24px;
+}
+
+.dropzone {
+  border: 2px dashed #2b6cb0;
+  border-radius: 12px;
+  background: #eff6ff;
+  padding: 48px;
+  text-align: center;
+  margin: 16px 0;
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+button {
+  border: none;
+  border-radius: 8px;
+  background: #1d4ed8;
+  color: #fff;
+  padding: 8px 14px;
+  cursor: pointer;
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+pre {
+  background: #0f172a;
+  color: #bae6fd;
+  border-radius: 8px;
+  padding: 12px;
+  overflow: auto;
+}

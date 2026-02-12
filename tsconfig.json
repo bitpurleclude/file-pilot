@@ -3,6 +3,8 @@
     "target": "ES2022",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
+    "lib": ["ES2022", "DOM"],
+    "jsx": "react-jsx",
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "exactOptionalPropertyTypes": true,
@@ -19,6 +21,8 @@
     ]
   },
   "include": [
-    "apps/**/*.ts"
+    "apps/**/*.ts",
+    "apps/**/*.tsx",
+    "vite.config.ts"
   ]
 }

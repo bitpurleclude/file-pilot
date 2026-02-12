@@ -21,13 +21,18 @@
    - 运行 `typecheck`、`lint`、`test`。
    - 完成 git 分阶段提交。
 
-## 本轮已实现范围
+## 本轮已实现范围（M1）
 
 - 日志导出基础能力：
   - 命名规则：`file-pilot-log-YYYYMMDD-HHMMSS.json`
   - 默认匿名化开启
   - 导出格式固定 JSON
   - schema_version 字段入导出内容
+- M1 应用骨架能力：
+  - Electron main/preload handler 基线
+  - Renderer 拖拽面板与 Dry-run/回滚/导出日志入口
+  - 分析 -> 分类 -> 路径规划 -> 执行/回滚 usecase
+  - 白名单配置与路径校验
 
 ## 后续里程碑建议
 
