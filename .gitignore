@@ -1,0 +1,33 @@
+﻿# Node / pnpm
+node_modules/
+.pnpm-store/
+
+# Build artifacts
+dist/
+build/
+out/
+release/
+*.tsbuildinfo
+
+# Logs and temp files
+*.log
+logs/
+tmp/
+temp/
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+
+# Editor / local tooling
+.vscode/
+.codex/
+
+# OS files
+.DS_Store
+Thumbs.db
