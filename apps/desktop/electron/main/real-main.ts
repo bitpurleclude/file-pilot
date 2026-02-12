@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 
+import { writeLogRecord } from "../../infra/logging/file-logger.js";
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import { handlers, type HandlerContext } from "./handler-registry.js";
 
@@ -28,11 +29,45 @@ const registerIpc = (context: HandlerContext): void => {
 
 const appDataRoot = app.getPath("userData");
 const workspaceRoot = join(app.getPath("documents"), "File-Pilot-Workspace");
+const appLogRoot = join(appDataRoot, "logs");
 
 const context: HandlerContext = {
   appDataRoot,
   workspaceRoot
 };
+
+const safeWriteMainLog = async (params: Parameters<typeof writeLogRecord>[1]): Promise<void> => {
+  try {
+    await writeLogRecord(appLogRoot, params);
+  } catch {
+    // ignore logging failures in global handlers
+  }
+};
+
+process.on("uncaughtException", async (error) => {
+  await safeWriteMainLog({
+    level: "error",
+    category: "error",
+    code: "MAIN_UNCAUGHT_EXCEPTION",
+    message: error.message,
+    traceId: crypto.randomUUID(),
+    details: { stack: error.stack }
+  });
+});
+
+process.on("unhandledRejection", async (reason) => {
+  const message = reason instanceof Error ? reason.message : String(reason);
+  const stack = reason instanceof Error ? reason.stack : undefined;
+
+  await safeWriteMainLog({
+    level: "error",
+    category: "error",
+    code: "MAIN_UNHANDLED_REJECTION",
+    message,
+    traceId: crypto.randomUUID(),
+    ...(stack === undefined ? {} : { details: { stack } })
+  });
+});
 
 void app.whenReady().then(async () => {
   registerIpc(context);
