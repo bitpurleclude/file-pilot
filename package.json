@@ -3,28 +3,61 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "main": "dist/electron/main.cjs",
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "test": "vitest run --root .",
-    "build": "vite build",
-    "pack": "npm pack"
+    "build:renderer": "vite build",
+    "build:electron": "esbuild apps/desktop/electron/main/index.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/electron/main.cjs && esbuild apps/desktop/electron/preload/index.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/electron/preload.cjs",
+    "build": "npm run build:renderer && npm run build:electron",
+    "dev": "vite",
+    "pack": "npm pack",
+    "dist:win": "npm run build && electron-builder --win nsis --publish never"
   },
   "dependencies": {
+    "nunjucks": "^3.2.4",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/nunjucks": "^3.2.6",
     "@types/react": "^18.3.5",
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "@types/node": "^24.3.0",
     "@typescript-eslint/eslint-plugin": "^8.43.0",
     "@typescript-eslint/parser": "^8.43.0",
+    "electron": "^33.2.1",
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.25.10",
     "eslint": "^9.34.0",
     "typescript": "^5.9.2",
     "vite": "^5.4.8",
     "vitest": "^2.1.8"
+  },
+  "build": {
+    "appId": "com.bitpurleclude.filepilot",
+    "productName": "File Pilot",
+    "forceCodeSigning": false,
+    "files": [
+      "dist/**/*",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "signAndEditExecutable": false,
+      "target": [
+        "nsis"
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   }
 }

@@ -1,15 +1,14 @@
+import { contextBridge, ipcRenderer } from "electron";
+
+import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import type { FilePilotApi } from "./api.js";
 
-const createMockApi = (): FilePilotApi => {
-  return {
-    analyze: async () => ({ ok: false, error: { code: "SYSTEM_NOT_READY", message: "Electron preload 未接入" } }),
-    apply: async () => ({ ok: false, error: { code: "SYSTEM_NOT_READY", message: "Electron preload 未接入" } }),
-    rollback: async () => ({ ok: false, error: { code: "SYSTEM_NOT_READY", message: "Electron preload 未接入" } }),
-    exportLogs: async () => ({ ok: false, error: { code: "SYSTEM_NOT_READY", message: "Electron preload 未接入" } }),
-    saveWhitelist: async () => ({ ok: false, error: { code: "SYSTEM_NOT_READY", message: "Electron preload 未接入" } })
-  };
+const api: FilePilotApi = {
+  analyze: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.analyze, payload),
+  apply: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.apply, payload),
+  rollback: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.rollback, payload),
+  exportLogs: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.exportLogs, payload),
+  saveWhitelist: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.saveWhitelist, payload)
 };
 
-if (typeof window !== "undefined") {
-  window.filePilotApi = createMockApi();
-}
+contextBridge.exposeInMainWorld("filePilotApi", api);

@@ -1,24 +1,29 @@
-import { LLM_CONFIG } from "../../shared/config/llm.config.js";
+import { z } from "zod";
+
 import type { Classification } from "../../shared/types/workflow.js";
 import type { LlmClassifier } from "../../core/usecases/classify-files.js";
+import type { AppSettings } from "../storage/settings-repository.js";
+import { CLASSIFY_PROMPT_VERSION, renderClassifyPrompt } from "./prompt-renderer.js";
+import { callLlmWithFallback } from "./llm-gateway.js";
 
-const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number): Promise<T> => {
-  return new Promise<T>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new Error("llm-timeout"));
-    }, timeoutMs);
-
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((error) => {
-        clearTimeout(timer);
-        reject(error);
-      });
-  });
-};
+const classifyResponseSchema = z.object({
+  purpose: z.enum([
+    "Documents",
+    "Media",
+    "Code",
+    "Archives",
+    "Installers",
+    "Others",
+    "Study",
+    "Work",
+    "Design",
+    "Finance",
+    "Research"
+  ]),
+  project: z.string().min(1).default("默认项目"),
+  confidence: z.number().min(0).max(1),
+  reasons: z.array(z.string()).default([])
+});
 
 const buildRuleResult = (ext: string): Classification => {
   if (["png", "jpg", "jpeg"].includes(ext)) {
@@ -29,17 +34,36 @@ const buildRuleResult = (ext: string): Classification => {
 };
 
 export class RuleFirstLlmClassifier implements LlmClassifier {
+  public constructor(private readonly settings: AppSettings) {}
+
   public async classify(input: Parameters<LlmClassifier["classify"]>[0]): ReturnType<LlmClassifier["classify"]> {
-    let attempt = 0;
-    while (attempt <= LLM_CONFIG.retryCount) {
+    const prompt = renderClassifyPrompt(input);
+    const result = await callLlmWithFallback({
+      settings: this.settings,
+      messages: [
+        {
+          role: "system",
+          content: "你是文件分类助手，只输出 JSON。"
+        },
+        {
+          role: "user",
+          content: prompt
+        }
+      ]
+    });
+
+    if (result !== null) {
       try {
-        const result = await withTimeout(Promise.resolve(buildRuleResult(input.item.ext)), LLM_CONFIG.timeoutMs);
-        return result;
+        const parsed = classifyResponseSchema.parse(JSON.parse(result.content));
+        return {
+          ...parsed,
+          reasons: [...parsed.reasons, `prompt_version:${CLASSIFY_PROMPT_VERSION}`, `model:${result.model}`]
+        };
       } catch {
-        attempt += 1;
+        return buildRuleResult(input.item.ext);
       }
     }
 
-    return null;
+    return buildRuleResult(input.item.ext);
   }
 }

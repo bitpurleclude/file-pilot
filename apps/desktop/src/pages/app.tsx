@@ -15,6 +15,7 @@ export const App = (): JSX.Element => {
   const [filePaths, setFilePaths] = useState<string[]>([]);
   const [message, setMessage] = useState<string>("拖入文件开始 M1 流程");
   const [anonymize, setAnonymize] = useState<boolean>(true);
+  const [whitelistInput, setWhitelistInput] = useState<string>("");
 
   const canAnalyze = useMemo(() => filePaths.length > 0, [filePaths]);
 
@@ -37,6 +38,26 @@ export const App = (): JSX.Element => {
     }
 
     setMessage(`分析失败: ${result.error.message}`);
+  };
+
+  const onSaveWhitelist = async (): Promise<void> => {
+    if (window.filePilotApi === undefined) {
+      setMessage("IPC 未就绪");
+      return;
+    }
+
+    const directories = whitelistInput
+      .split(";")
+      .map((item) => item.trim())
+      .filter((item) => item.length > 0);
+
+    if (directories.length === 0) {
+      setMessage("请先输入白名单目录，多个目录用分号分隔");
+      return;
+    }
+
+    const result = await window.filePilotApi.saveWhitelist({ directories });
+    setMessage(result.ok ? "白名单已保存" : `白名单保存失败: ${result.error.message}`);
   };
 
   const onApplyDryRun = async (): Promise<void> => {
@@ -78,6 +99,15 @@ export const App = (): JSX.Element => {
       >
         拖拽文件到这里
       </section>
+
+      <div className="controls">
+        <input
+          placeholder="白名单目录，多个用 ; 分隔"
+          value={whitelistInput}
+          onChange={(event) => setWhitelistInput(event.target.value)}
+        />
+        <button onClick={onSaveWhitelist}>保存白名单</button>
+      </div>
 
       <div className="controls">
         <button onClick={onAnalyze} disabled={!canAnalyze}>

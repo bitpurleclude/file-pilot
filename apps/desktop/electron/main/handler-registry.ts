@@ -40,7 +40,7 @@ export const handlers = {
         filePaths: req.filePaths,
         settings,
         workspaceRoot: context.workspaceRoot,
-        classifier: new RuleFirstLlmClassifier(),
+        classifier: new RuleFirstLlmClassifier(settings),
         now: new Date()
       });
       const plannedExecutions: ExecutionResult[] = processed.plans.map((plan) => ({
