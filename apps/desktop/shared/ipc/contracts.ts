@@ -33,6 +33,12 @@ export const checkUpdatesRequestSchema = z.object({
   channel: z.enum(["beta", "stable"]).optional()
 });
 
+export const getSettingsRequestSchema = z.object({}).default({});
+
+export const getLogStatusRequestSchema = z.object({}).default({});
+
+export const clearLogsRequestSchema = z.object({}).default({});
+
 export type AnalyzeRequest = z.infer<typeof analyzeRequestSchema>;
 export type ApplyRequest = z.infer<typeof applyRequestSchema>;
 export type RollbackRequest = z.infer<typeof rollbackRequestSchema>;
@@ -40,6 +46,9 @@ export type ExportLogsRequest = z.infer<typeof exportLogsRequestSchema>;
 export type SaveWhitelistRequest = z.infer<typeof saveWhitelistRequestSchema>;
 export type ReportClientErrorRequest = z.infer<typeof reportClientErrorRequestSchema>;
 export type CheckUpdatesRequest = z.infer<typeof checkUpdatesRequestSchema>;
+export type GetSettingsRequest = z.infer<typeof getSettingsRequestSchema>;
+export type GetLogStatusRequest = z.infer<typeof getLogStatusRequestSchema>;
+export type ClearLogsRequest = z.infer<typeof clearLogsRequestSchema>;
 
 export const IPC_CHANNELS = {
   analyze: "fp:analyze",
@@ -48,5 +57,8 @@ export const IPC_CHANNELS = {
   exportLogs: "fp:export-logs",
   saveWhitelist: "fp:save-whitelist",
   reportClientError: "fp:report-client-error",
-  checkUpdates: "fp:check-updates"
+  checkUpdates: "fp:check-updates",
+  getSettings: "fp:get-settings",
+  getLogStatus: "fp:get-log-status",
+  clearLogs: "fp:clear-logs"
 } as const;

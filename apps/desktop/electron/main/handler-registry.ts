@@ -3,8 +3,11 @@ import { join } from "node:path";
 import {
   applyRequestSchema,
   analyzeRequestSchema,
+  clearLogsRequestSchema,
   checkUpdatesRequestSchema,
   exportLogsRequestSchema,
+  getLogStatusRequestSchema,
+  getSettingsRequestSchema,
   reportClientErrorRequestSchema,
   rollbackRequestSchema,
   saveWhitelistRequestSchema
@@ -18,7 +21,7 @@ import { processSession, applySession, rollbackSession } from "../../core/usecas
 import { createSession, updateSessionStatus, withExecutions } from "../../core/usecases/session-manager.js";
 import { normalizeWhitelist } from "../../core/usecases/whitelist.js";
 import { persistLogExportJson } from "../../infra/fs/log-export-file-repository.js";
-import { listLogRecords, writeLogRecord } from "../../infra/logging/file-logger.js";
+import { clearAllLogs, getLogStatus, listLogRecords, writeLogRecord } from "../../infra/logging/file-logger.js";
 import { toIpcError, type IpcResult } from "../../shared/errors/app-error.js";
 import type { JsonArray, JsonObject } from "../../shared/types/log-export.js";
 import type { ExecutionResult } from "../../shared/types/workflow.js";
@@ -263,6 +266,44 @@ export const handlers = {
       const next = { ...settings, whitelistDirectories: normalizeWhitelist(req.directories) };
       await saveSettings(settingsRootPath(context), next);
       return { ok: true, data: next };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  },
+
+  getSettings: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+    try {
+      getSettingsRequestSchema.parse(payload);
+      const settings = await loadSettings(settingsRootPath(context));
+      return { ok: true, data: settings };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  },
+
+  getLogStatus: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+    try {
+      getLogStatusRequestSchema.parse(payload);
+      const status = await getLogStatus(logRootPath(context));
+      return { ok: true, data: status };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  },
+
+  clearLogs: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+    const t = traceId();
+    try {
+      clearLogsRequestSchema.parse(payload);
+      await clearAllLogs(logRootPath(context));
+      await safeWriteLog(context, {
+        level: "warn",
+        category: "audit",
+        code: "LOG_CLEARED",
+        message: "日志已清理",
+        traceId: t
+      });
+      return { ok: true, data: { cleared: true } };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
     }

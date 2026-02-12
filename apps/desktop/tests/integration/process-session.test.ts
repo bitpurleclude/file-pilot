@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { processSession } from "../../core/usecases/process-session.js";
 import { RuleFirstLlmClassifier } from "../../infra/llm/rule-first-llm.js";
-import type { AppSettings } from "../../infra/storage/settings-repository.js";
+import type { AppSettings } from "../../shared/types/settings.js";
 
 const tempDirs: string[] = [];
 const originalFetch = globalThis.fetch;

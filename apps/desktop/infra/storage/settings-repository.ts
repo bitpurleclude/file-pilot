@@ -1,16 +1,7 @@
 import { join } from "node:path";
 
+import type { AppSettings } from "../../shared/types/settings.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
-
-export interface AppSettings {
-  whitelistDirectories: string[];
-  llm: {
-    baseUrl: string;
-    apiKey?: string;
-    primaryModel: string;
-    secondaryModel: string;
-  };
-}
 
 export const defaultSettings: AppSettings = {
   whitelistDirectories: [],

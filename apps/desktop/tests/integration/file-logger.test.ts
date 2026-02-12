@@ -5,7 +5,9 @@ import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  clearAllLogs,
   getLogFileSize,
+  getLogStatus,
   listLogRecords,
   rotateLogFileIfNeeded,
   shouldWarnLogSize,
@@ -84,5 +86,26 @@ describe("file-logger", () => {
     const records = await listLogRecords(root);
     const hasAfterRotate = records.some((record) => record.code === "AFTER_ROTATE");
     expect(hasAfterRotate).toBe(true);
+  });
+
+  it("returns status and can clear logs", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-logger-clear-"));
+    tempDirs.push(root);
+
+    await writeLogRecord(root, {
+      level: "info",
+      category: "audit",
+      code: "BEFORE_CLEAR",
+      message: "before",
+      traceId: "trace-before"
+    });
+
+    const before = await getLogStatus(root);
+    expect(before.sizeBytes).toBeGreaterThan(0);
+
+    await clearAllLogs(root);
+
+    const after = await getLogStatus(root);
+    expect(after.sizeBytes).toBe(0);
   });
 });

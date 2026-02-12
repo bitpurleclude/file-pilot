@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RuleFirstLlmClassifier } from "../../infra/llm/rule-first-llm.js";
-import type { AppSettings } from "../../infra/storage/settings-repository.js";
+import type { AppSettings } from "../../shared/types/settings.js";
 
 const originalFetch = globalThis.fetch;
 

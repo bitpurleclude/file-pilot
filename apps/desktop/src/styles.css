@@ -25,7 +25,17 @@ body {
 
 .controls {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
+  margin-bottom: 12px;
+}
+
+.wizard {
+  border: 1px solid #93c5fd;
+  border-radius: 12px;
+  background: #ffffff;
+  padding: 12px;
   margin-bottom: 12px;
 }
 

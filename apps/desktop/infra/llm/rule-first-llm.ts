@@ -1,8 +1,8 @@
 import { z } from "zod";
 
 import type { Classification } from "../../shared/types/workflow.js";
+import type { AppSettings } from "../../shared/types/settings.js";
 import type { LlmClassifier } from "../../core/usecases/classify-files.js";
-import type { AppSettings } from "../storage/settings-repository.js";
 import { CLASSIFY_PROMPT_VERSION, renderClassifyPrompt } from "./prompt-renderer.js";
 import { callLlmWithFallback } from "./llm-gateway.js";
 

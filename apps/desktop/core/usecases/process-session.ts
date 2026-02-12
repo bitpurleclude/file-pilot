@@ -1,4 +1,4 @@
-import type { AppSettings } from "../../infra/storage/settings-repository.js";
+import type { AppSettings } from "../../shared/types/settings.js";
 import type { Classification, PlacementPlan } from "../../shared/types/workflow.js";
 import { analyzeFiles } from "./analyze-files.js";
 import { classifyWithFallback, shouldAskFollowUp, type LlmClassifier } from "./classify-files.js";

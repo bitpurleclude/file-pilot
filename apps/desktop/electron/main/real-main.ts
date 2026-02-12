@@ -27,6 +27,9 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.rollback, async (_event, payload) => handlers.rollback(context, payload));
   ipcMain.handle(IPC_CHANNELS.exportLogs, async (_event, payload) => handlers.exportLogs(context, payload));
   ipcMain.handle(IPC_CHANNELS.saveWhitelist, async (_event, payload) => handlers.saveWhitelist(context, payload));
+  ipcMain.handle(IPC_CHANNELS.getSettings, async (_event, payload) => handlers.getSettings(context, payload));
+  ipcMain.handle(IPC_CHANNELS.getLogStatus, async (_event, payload) => handlers.getLogStatus(context, payload));
+  ipcMain.handle(IPC_CHANNELS.clearLogs, async (_event, payload) => handlers.clearLogs(context, payload));
   ipcMain.handle(IPC_CHANNELS.reportClientError, async (_event, payload) => handlers.reportClientError(context, payload));
   ipcMain.handle(IPC_CHANNELS.checkUpdates, async (_event, payload) => handlers.checkUpdates(context, payload));
 };

@@ -1,5 +1,5 @@
 import { LLM_CONFIG } from "../../shared/config/llm.config.js";
-import type { AppSettings } from "../storage/settings-repository.js";
+import type { AppSettings } from "../../shared/types/settings.js";
 
 export interface ChatMessage {
   role: "system" | "user";

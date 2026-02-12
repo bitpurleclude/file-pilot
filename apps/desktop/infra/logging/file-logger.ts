@@ -1,4 +1,4 @@
-import { appendFile, mkdir, readFile, rename, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, readdir, rename, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { LOGGING_CONFIG } from "../../shared/config/logging.config.js";
@@ -99,4 +99,23 @@ export const getLogFileSize = async (logRoot: string): Promise<number> => {
 
 export const shouldWarnLogSize = (bytes: number): boolean => {
   return bytes >= LOGGING_CONFIG.warnThresholdBytes;
+};
+
+export const getLogStatus = async (logRoot: string): Promise<{ sizeBytes: number; warn: boolean }> => {
+  const sizeBytes = await getLogFileSize(logRoot);
+  return {
+    sizeBytes,
+    warn: shouldWarnLogSize(sizeBytes)
+  };
+};
+
+export const clearAllLogs = async (logRoot: string): Promise<void> => {
+  try {
+    const entries = await readdir(logRoot);
+    const targets = entries.filter((name) => name === LOGGING_CONFIG.fileName || name.startsWith("events-") && name.endsWith(".jsonl"));
+
+    await Promise.all(targets.map((name) => rm(join(logRoot, name), { force: true })));
+  } catch {
+    // ignore missing directory
+  }
 };
