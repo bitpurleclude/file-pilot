@@ -29,12 +29,17 @@ export const reportClientErrorRequestSchema = z.object({
   details: z.record(z.unknown()).optional()
 });
 
+export const checkUpdatesRequestSchema = z.object({
+  channel: z.enum(["beta", "stable"]).optional()
+});
+
 export type AnalyzeRequest = z.infer<typeof analyzeRequestSchema>;
 export type ApplyRequest = z.infer<typeof applyRequestSchema>;
 export type RollbackRequest = z.infer<typeof rollbackRequestSchema>;
 export type ExportLogsRequest = z.infer<typeof exportLogsRequestSchema>;
 export type SaveWhitelistRequest = z.infer<typeof saveWhitelistRequestSchema>;
 export type ReportClientErrorRequest = z.infer<typeof reportClientErrorRequestSchema>;
+export type CheckUpdatesRequest = z.infer<typeof checkUpdatesRequestSchema>;
 
 export const IPC_CHANNELS = {
   analyze: "fp:analyze",
@@ -42,5 +47,6 @@ export const IPC_CHANNELS = {
   rollback: "fp:rollback",
   exportLogs: "fp:export-logs",
   saveWhitelist: "fp:save-whitelist",
-  reportClientError: "fp:report-client-error"
+  reportClientError: "fp:report-client-error",
+  checkUpdates: "fp:check-updates"
 } as const;

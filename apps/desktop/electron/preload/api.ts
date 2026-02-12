@@ -1,4 +1,5 @@
 import type { IpcResult } from "../../shared/errors/app-error.js";
+import type { UpdateInfo } from "../../shared/types/updater.js";
 
 export interface FilePilotApi {
   analyze(payload: { sessionId: string; filePaths: string[] }): Promise<IpcResult<unknown>>;
@@ -7,6 +8,7 @@ export interface FilePilotApi {
   exportLogs(payload: { anonymize: boolean }): Promise<IpcResult<{ path: string }>>;
   saveWhitelist(payload: { directories: string[] }): Promise<IpcResult<unknown>>;
   reportClientError(payload: { code: string; message: string; details?: Record<string, unknown> }): Promise<IpcResult<unknown>>;
+  checkUpdates(payload?: { channel?: "beta" | "stable" }): Promise<IpcResult<UpdateInfo>>;
 }
 
 declare global {

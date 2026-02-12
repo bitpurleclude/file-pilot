@@ -2,6 +2,8 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 
 import { writeLogRecord } from "../../infra/logging/file-logger.js";
+import { checkForUpdates } from "../../infra/updater/check-updates.js";
+import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import { handlers, type HandlerContext } from "./handler-registry.js";
 
@@ -26,6 +28,7 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.exportLogs, async (_event, payload) => handlers.exportLogs(context, payload));
   ipcMain.handle(IPC_CHANNELS.saveWhitelist, async (_event, payload) => handlers.saveWhitelist(context, payload));
   ipcMain.handle(IPC_CHANNELS.reportClientError, async (_event, payload) => handlers.reportClientError(context, payload));
+  ipcMain.handle(IPC_CHANNELS.checkUpdates, async (_event, payload) => handlers.checkUpdates(context, payload));
 };
 
 const appDataRoot = app.getPath("userData");
@@ -34,7 +37,8 @@ const appLogRoot = join(appDataRoot, "logs");
 
 const context: HandlerContext = {
   appDataRoot,
-  workspaceRoot
+  workspaceRoot,
+  appVersion: app.getVersion()
 };
 
 const safeWriteMainLog = async (params: Parameters<typeof writeLogRecord>[1]): Promise<void> => {
@@ -73,6 +77,30 @@ process.on("unhandledRejection", async (reason) => {
 void app.whenReady().then(async () => {
   registerIpc(context);
   await createMainWindow();
+
+  setTimeout(async () => {
+    const update = await checkForUpdates({
+      currentVersion: context.appVersion,
+      channel: UPDATER_CONFIG.channel
+    });
+
+    await safeWriteMainLog({
+      level: "info",
+      category: "audit",
+      code: update.available ? "UPDATE_AVAILABLE" : "UPDATE_NOT_AVAILABLE",
+      message: update.available
+        ? `发现新版本 ${update.latestVersion ?? "unknown"}`
+        : "当前已是最新版本",
+      traceId: crypto.randomUUID(),
+      details: {
+        available: update.available,
+        currentVersion: update.currentVersion,
+        latestVersion: update.latestVersion,
+        releaseUrl: update.releaseUrl,
+        notes: update.notes
+      }
+    });
+  }, UPDATER_CONFIG.checkDelayMs);
 });
 
 app.on("window-all-closed", () => {

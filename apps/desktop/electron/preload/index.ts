@@ -9,7 +9,8 @@ const api: FilePilotApi = {
   rollback: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.rollback, payload),
   exportLogs: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.exportLogs, payload),
   saveWhitelist: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.saveWhitelist, payload),
-  reportClientError: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.reportClientError, payload)
+  reportClientError: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.reportClientError, payload),
+  checkUpdates: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.checkUpdates, payload ?? {})
 };
 
 contextBridge.exposeInMainWorld("filePilotApi", api);

@@ -3,11 +3,13 @@ import { join } from "node:path";
 import {
   applyRequestSchema,
   analyzeRequestSchema,
+  checkUpdatesRequestSchema,
   exportLogsRequestSchema,
   reportClientErrorRequestSchema,
   rollbackRequestSchema,
   saveWhitelistRequestSchema
 } from "../../shared/ipc/contracts.js";
+import { checkForUpdates } from "../../infra/updater/check-updates.js";
 import { RuleFirstLlmClassifier } from "../../infra/llm/rule-first-llm.js";
 import { loadSettings, saveSettings } from "../../infra/storage/settings-repository.js";
 import { getSessionById, upsertSession } from "../../infra/storage/session-repository.js";
@@ -26,6 +28,7 @@ type UnknownPayload = Record<string, unknown>;
 export interface HandlerContext {
   appDataRoot: string;
   workspaceRoot: string;
+  appVersion: string;
 }
 
 const settingsRootPath = (context: HandlerContext): string => join(context.appDataRoot, "settings");
@@ -279,6 +282,36 @@ export const handlers = {
       });
 
       return { ok: true, data: { recorded: true } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  },
+
+  checkUpdates: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+    const t = traceId();
+    try {
+      const req = checkUpdatesRequestSchema.parse(payload);
+      const update = await checkForUpdates({
+        currentVersion: context.appVersion,
+        ...(req.channel === undefined ? {} : { channel: req.channel })
+      });
+
+      await safeWriteLog(context, {
+        level: "info",
+        category: "audit",
+        code: update.available ? "MANUAL_UPDATE_AVAILABLE" : "MANUAL_UPDATE_NOT_AVAILABLE",
+        message: update.available ? "手动检查发现新版本" : "手动检查未发现新版本",
+        traceId: t,
+        details: {
+          available: update.available,
+          currentVersion: update.currentVersion,
+          latestVersion: update.latestVersion,
+          releaseUrl: update.releaseUrl,
+          notes: update.notes
+        }
+      });
+
+      return { ok: true, data: update };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
     }

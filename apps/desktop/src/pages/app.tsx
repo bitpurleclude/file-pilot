@@ -87,6 +87,25 @@ export const App = (): JSX.Element => {
     setMessage(result.ok ? `日志已导出: ${result.data.path}` : `导出失败: ${result.error.message}`);
   };
 
+  const onCheckUpdates = async (): Promise<void> => {
+    if (window.filePilotApi === undefined) {
+      setMessage("IPC 未就绪");
+      return;
+    }
+
+    const result = await window.filePilotApi.checkUpdates();
+    if (!result.ok) {
+      setMessage(`更新检查失败: ${result.error.message}`);
+      return;
+    }
+
+    setMessage(
+      result.data.available
+        ? `发现新版本: ${result.data.latestVersion ?? "unknown"}`
+        : `当前已是最新版本 (${result.data.currentVersion})`
+    );
+  };
+
   return (
     <main className="container">
       <h1>File-Pilot M1</h1>
@@ -131,6 +150,7 @@ export const App = (): JSX.Element => {
           日志匿名化
         </label>
         <button onClick={onExportLogs}>导出日志</button>
+        <button onClick={onCheckUpdates}>检查更新</button>
         <button onClick={() => setSessionId(genSessionId())}>新建会话</button>
       </div>
 
