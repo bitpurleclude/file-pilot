@@ -34,6 +34,18 @@
 - LLM 调用容错：超时 20 秒，失败重试 2 次。
 - 凭据存储回退：keytar 不可用时回退到本地加密文件。
 
+已确认决策（2026-02-12，P0 拍板）
+- 置信度阈值：高 >= 0.85；中 0.60~0.84；低 < 0.60。
+- 追问触发：仅低置信度（< 0.60）触发追问。
+- 同名冲突默认策略：默认重命名（追加时间戳），支持手动改为覆盖/跳过。
+- 回滚语义：会话内尽力全回滚，并明确标记不可回滚项。
+- IPC 超时与取消：默认 30 秒超时，支持 AbortSignal 取消。
+- 数据库主键：统一使用 UUID。
+- 关键索引：sessions(created_at,status)、items(session_id,status)、logs(session_id,timestamp)。
+- 任务状态机：pending -> analyzing -> planned -> applying -> done/failed/rolled_back。
+- migration 规则：每次 schema 变更必须新增 migration，禁止改写历史 migration。
+- 执行失败补偿：先停止后续任务，再记录失败点并对已执行项做反向补偿。
+
 已确认需求与约束
 - LLM：云端模型可接受，默认 LLM 优先（本地规则仅辅助/校验）。
 - 文件解析范围：txt / md / pdf / docx / xlsx。
@@ -218,9 +230,14 @@ API/模块接口（草案）
 - UI 方案：Tailwind + 自建组件
 - 场景模板：默认自动推荐（可手动切换）
 - 批量软限制：100
+- 置信度阈值：高 >= 0.85；中 0.60~0.84；低 < 0.60
+- 追问触发：仅低置信度（< 0.60）
 - LLM 解释：简短 + 可展开
 - LLM 额度上限：关闭（可选开启）
 - LLM 调用容错：超时 20 秒 + 重试 2 次
+- IPC 默认超时：30 秒（支持取消）
+- 同名冲突默认策略：重命名（追加时间戳）
+- 回滚语义：会话内尽力全回滚 + 不可回滚项标记
 - 时间层级用途：Media / Archives / Study
 - Study 组织：科目模板可关闭 + 用户自定义
 - 回迁提醒：开启（手动一键回迁）
@@ -230,6 +247,10 @@ API/模块接口（草案）
 - Beta 发布触发：手动 tag
 - Windows 签名：M1 不签名
 - 数据库路径：AppData/Roaming/File-Pilot/data.db
+- 数据库主键：UUID
+- 关键索引：sessions(created_at,status)、items(session_id,status)、logs(session_id,timestamp)
+- 任务状态机：pending -> analyzing -> planned -> applying -> done/failed/rolled_back
+- migration 规则：每次 schema 变更新增 migration（不改历史）
 - 搜索：Everything 集成默认关闭（高级设置开关）
 - 去重：默认仅提示，合并需手动选择保留版本
 - 命名规范化触发：仅在用户确认模板后执行
@@ -412,6 +433,17 @@ ESLint 与格式化门禁（v0.42）
 - Beta 发布：手动 tag 触发 prerelease（beta 通道）。
 - 正式发布：通过人工验收后发布 stable tag/release。
 - 更新通道：beta 客户端仅跟踪 beta，stable 客户端仅跟踪 stable。
+
+开工前拍板细则（v0.43）
+- 置信度分层：>= 0.85 直接建议；0.60~0.84 建议并提示确认；< 0.60 触发追问。
+- 追问策略：追问仅面向低置信度项，且支持“本次答案应用整批”。
+- 冲突处理：目标同名默认重命名（时间戳），允许用户改为覆盖或跳过。
+- 回滚策略：会话级回滚优先；不可回滚项必须在结果页显式列出原因。
+- IPC 合约：统一 30 秒超时与取消协议，超时返回标准错误码。
+- 主键与索引：全局 UUID；关键索引覆盖会话查询、任务列表和日志追溯。
+- 状态机：pending -> analyzing -> planned -> applying -> done/failed/rolled_back。
+- 迁移约束：采用增量 migration；历史 migration 禁止修改，仅允许追加。
+- 失败补偿：失败即停止后续任务，执行反向补偿并输出补偿报告。
 
 待确认问题（v0.40）
 已确认（v0.40）
