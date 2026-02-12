@@ -23,6 +23,7 @@
   "include": [
     "apps/**/*.ts",
     "apps/**/*.tsx",
-    "vite.config.ts"
+    "vite.config.ts",
+    "playwright.config.ts"
   ]
 }

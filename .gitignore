@@ -18,6 +18,8 @@ temp/
 # Test / coverage
 coverage/
 .nyc_output/
+test-results/
+playwright-report/
 
 # Environment and secrets
 .env
