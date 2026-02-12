@@ -4,7 +4,13 @@ import { join } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { listLogRecords, shouldWarnLogSize, writeLogRecord } from "../../infra/logging/file-logger.js";
+import {
+  getLogFileSize,
+  listLogRecords,
+  rotateLogFileIfNeeded,
+  shouldWarnLogSize,
+  writeLogRecord
+} from "../../infra/logging/file-logger.js";
 
 const tempDirs: string[] = [];
 
@@ -45,5 +51,38 @@ describe("file-logger", () => {
   it("exposes size warning helper", () => {
     expect(shouldWarnLogSize(4 * 1024 * 1024)).toBe(true);
     expect(shouldWarnLogSize(128)).toBe(false);
+  });
+
+  it("rotates log file when size exceeds threshold", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-logger-rotate-"));
+    tempDirs.push(root);
+
+    const largeMessage = "x".repeat(220_000);
+    for (let i = 0; i < 30; i += 1) {
+      await writeLogRecord(root, {
+        level: "info",
+        category: "audit",
+        code: "SPAM",
+        message: `${largeMessage}-${i}`,
+        traceId: `trace-${i}`
+      });
+    }
+
+    const before = await getLogFileSize(root);
+    expect(before).toBeGreaterThan(0);
+
+    await rotateLogFileIfNeeded(root);
+
+    await writeLogRecord(root, {
+      level: "info",
+      category: "audit",
+      code: "AFTER_ROTATE",
+      message: "new file",
+      traceId: "trace-after"
+    });
+
+    const records = await listLogRecords(root);
+    const hasAfterRotate = records.some((record) => record.code === "AFTER_ROTATE");
+    expect(hasAfterRotate).toBe(true);
   });
 });

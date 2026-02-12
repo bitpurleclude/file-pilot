@@ -4,6 +4,7 @@ import {
   applyRequestSchema,
   analyzeRequestSchema,
   exportLogsRequestSchema,
+  reportClientErrorRequestSchema,
   rollbackRequestSchema,
   saveWhitelistRequestSchema
 } from "../../shared/ipc/contracts.js";
@@ -259,6 +260,25 @@ export const handlers = {
       const next = { ...settings, whitelistDirectories: normalizeWhitelist(req.directories) };
       await saveSettings(settingsRootPath(context), next);
       return { ok: true, data: next };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  },
+
+  reportClientError: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+    const t = traceId();
+    try {
+      const req = reportClientErrorRequestSchema.parse(payload);
+      await safeWriteLog(context, {
+        level: "error",
+        category: "error",
+        code: req.code,
+        message: req.message,
+        traceId: t,
+        ...(req.details === undefined ? {} : { details: req.details })
+      });
+
+      return { ok: true, data: { recorded: true } };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
     }

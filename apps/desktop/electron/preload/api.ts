@@ -6,6 +6,7 @@ export interface FilePilotApi {
   rollback(payload: { sessionId: string }): Promise<IpcResult<unknown>>;
   exportLogs(payload: { anonymize: boolean }): Promise<IpcResult<{ path: string }>>;
   saveWhitelist(payload: { directories: string[] }): Promise<IpcResult<unknown>>;
+  reportClientError(payload: { code: string; message: string; details?: Record<string, unknown> }): Promise<IpcResult<unknown>>;
 }
 
 declare global {

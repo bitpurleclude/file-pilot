@@ -1,11 +1,10 @@
 import { mkdtemp, writeFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { test, expect, _electron as electron } from "@playwright/test";
 
 test("whitelist + analyze + export logs workflow", async () => {
-  const sandbox = await mkdtemp(join(tmpdir(), "file-pilot-e2e-"));
+  const sandbox = await mkdtemp(join(process.cwd(), "tmp-file-pilot-e2e-"));
   const sample = join(sandbox, "sample.md");
   await writeFile(sample, "# hello", "utf-8");
 

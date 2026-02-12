@@ -15,14 +15,14 @@ test("app starts and preload API is injected", async () => {
       methods:
         api === undefined
           ? []
-          : ["analyze", "apply", "rollback", "exportLogs", "saveWhitelist"].filter(
+          : ["analyze", "apply", "rollback", "exportLogs", "saveWhitelist", "reportClientError"].filter(
               (key) => typeof (api as unknown as Record<string, unknown>)[key] === "function"
             )
     };
   });
 
   expect(apiInfo.exists).toBe(true);
-  expect(apiInfo.methods).toEqual(["analyze", "apply", "rollback", "exportLogs", "saveWhitelist"]);
+  expect(apiInfo.methods).toEqual(["analyze", "apply", "rollback", "exportLogs", "saveWhitelist", "reportClientError"]);
 
   await electronApp.close();
 });

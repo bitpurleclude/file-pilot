@@ -25,6 +25,7 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.rollback, async (_event, payload) => handlers.rollback(context, payload));
   ipcMain.handle(IPC_CHANNELS.exportLogs, async (_event, payload) => handlers.exportLogs(context, payload));
   ipcMain.handle(IPC_CHANNELS.saveWhitelist, async (_event, payload) => handlers.saveWhitelist(context, payload));
+  ipcMain.handle(IPC_CHANNELS.reportClientError, async (_event, payload) => handlers.reportClientError(context, payload));
 };
 
 const appDataRoot = app.getPath("userData");

@@ -1,10 +1,33 @@
-import { appendFile, mkdir, readFile, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, stat } from "node:fs/promises";
 import { join } from "node:path";
 
 import { LOGGING_CONFIG } from "../../shared/config/logging.config.js";
 import type { LogCategory, LogLevel, LogRecord, WriteLogInput } from "../../shared/types/logging.js";
 
 const logPath = (logRoot: string): string => join(logRoot, LOGGING_CONFIG.fileName);
+
+const rotatedLogPath = (logRoot: string): string => {
+  const now = new Date();
+  const stamp = [
+    now.getFullYear().toString().padStart(4, "0"),
+    (now.getMonth() + 1).toString().padStart(2, "0"),
+    now.getDate().toString().padStart(2, "0"),
+    now.getHours().toString().padStart(2, "0"),
+    now.getMinutes().toString().padStart(2, "0"),
+    now.getSeconds().toString().padStart(2, "0")
+  ].join("");
+
+  return join(logRoot, `events-${stamp}.jsonl`);
+};
+
+export const rotateLogFileIfNeeded = async (logRoot: string): Promise<void> => {
+  const size = await getLogFileSize(logRoot);
+  if (size < LOGGING_CONFIG.maxFileBytes) {
+    return;
+  }
+
+  await rename(logPath(logRoot), rotatedLogPath(logRoot));
+};
 
 const toLogRecord = (input: WriteLogInput): LogRecord => {
   const out: LogRecord = {
@@ -30,6 +53,7 @@ const toLogRecord = (input: WriteLogInput): LogRecord => {
 
 export const writeLogRecord = async (logRoot: string, input: WriteLogInput): Promise<LogRecord> => {
   await mkdir(logRoot, { recursive: true });
+  await rotateLogFileIfNeeded(logRoot);
   const record = toLogRecord(input);
   await appendFile(logPath(logRoot), `${JSON.stringify(record)}\n`, "utf-8");
   return record;

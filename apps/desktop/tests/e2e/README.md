@@ -6,8 +6,8 @@
 
 1. `startup.spec.ts`：首屏渲染、preload API 注入、白屏检测
 2. `workflow.spec.ts`：白名单 -> 拖拽 -> 分析 -> dry-run -> 回滚
-3. `log-export.spec.ts`：日志导出成功与文件可读
-4. `package-smoke.spec.ts`：打包后安装包启动冒烟（后续补充）
+3. `error-path.spec.ts`：白名单拒绝路径、客户端错误上报
+4. `package-smoke.spec.ts`：打包后安装包产物可读冒烟
 
 当前测试矩阵见：`docs/architecture/e2e-test-plan.md`。
 
