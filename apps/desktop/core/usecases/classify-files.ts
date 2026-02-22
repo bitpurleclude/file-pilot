@@ -1,5 +1,5 @@
 import { CLASSIFICATION_CONFIG } from "../../shared/config/classification.config.js";
-import type { Classification, ContentSummary, FileItem, Purpose } from "../../shared/types/workflow.js";
+import type { Classification, ConfidenceBand, ContentSummary, FileItem, Purpose } from "../../shared/types/workflow.js";
 
 export interface LlmClassifier {
   classify(input: { item: FileItem; summary: ContentSummary }): Promise<Classification | null>;
@@ -30,7 +30,8 @@ const fallbackClassify = (item: FileItem): Classification => {
     purpose,
     project: "default",
     confidence: 0.72,
-    reasons: ["local-rule:fallback"]
+    reasons: ["local-rule:fallback"],
+    decisionSource: "local-fallback"
   };
 };
 
@@ -44,9 +45,24 @@ export const classifyWithFallback = async (
     return fallbackClassify(item);
   }
 
-  return llmResult;
+  return {
+    ...llmResult,
+    confidenceBand: confidenceBandOf(llmResult.confidence)
+  };
 };
 
 export const shouldAskFollowUp = (classification: Classification): boolean => {
   return classification.confidence < CLASSIFICATION_CONFIG.askThreshold;
+};
+
+export const confidenceBandOf = (confidence: number): ConfidenceBand => {
+  if (confidence >= CLASSIFICATION_CONFIG.highConfidenceMin) {
+    return "high";
+  }
+
+  if (confidence >= CLASSIFICATION_CONFIG.mediumConfidenceMin) {
+    return "medium";
+  }
+
+  return "low";
 };

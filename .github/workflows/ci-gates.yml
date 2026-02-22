@@ -1,0 +1,210 @@
+name: CI Gates
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  schedule:
+    - cron: "0 2 * * *"
+  release:
+    types:
+      - published
+  workflow_dispatch:
+    inputs:
+      run_qa_pre_release:
+        description: Run QA acceptance gates before release
+        required: false
+        default: "false"
+
+concurrency:
+  group: ci-gates-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs-sync-gate:
+    name: Docs Sync Gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Enforce docs update for source changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          DOCS_EXEMPT: ${{ contains(github.event.pull_request.labels.*.name, 'docs-exempt') }}
+        run: |
+          CHANGED_FILES="$(git diff --name-only "$BASE_SHA" "$HEAD_SHA")"
+          echo "Changed files:"
+          echo "$CHANGED_FILES"
+
+          SOURCE_CHANGED="false"
+          DOCS_CHANGED="false"
+
+          while IFS= read -r file; do
+            if [ -z "$file" ]; then
+              continue
+            fi
+
+            if [[ "$file" == docs/* ]]; then
+              DOCS_CHANGED="true"
+              continue
+            fi
+
+            if [[ "$file" == apps/* || "$file" == package.json || "$file" == package-lock.json || "$file" == tsconfig.json || "$file" == eslint.config.mjs || "$file" == vite.config.ts || "$file" == playwright.config.ts ]]; then
+              SOURCE_CHANGED="true"
+            fi
+          done <<< "$CHANGED_FILES"
+
+          if [[ "$SOURCE_CHANGED" == "true" && "$DOCS_CHANGED" == "false" && "$DOCS_EXEMPT" != "true" ]]; then
+            echo "Source changed but no docs update found. Add docs changes or apply docs-exempt label with reason."
+            exit 1
+          fi
+
+          echo "Docs sync gate passed."
+
+  quality-gates:
+    name: Typecheck Lint Unit Integration Build
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit + Integration
+        run: npm run test
+
+      - name: Build
+        run: npm run build
+
+  e2e-gates:
+    name: E2E Core
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Build app
+        run: npm run build
+
+      - name: Rebuild native deps for Electron runtime
+        run: npm run native:rebuild:electron
+
+      - name: E2E core scenarios
+        run: npx playwright test apps/desktop/tests/e2e/startup.spec.ts apps/desktop/tests/e2e/workflow.spec.ts apps/desktop/tests/e2e/error-path.spec.ts apps/desktop/tests/e2e/rule-learning.spec.ts apps/desktop/tests/e2e/migration.spec.ts
+
+  package-smoke-gate:
+    name: Package Smoke (Windows NSIS)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build NSIS installer
+        run: npm run dist:win
+
+      - name: Playwright smoke for packaged artifact
+        run: npx playwright test apps/desktop/tests/e2e/package-smoke.spec.ts
+
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: file-pilot-windows-installer
+          path: release/*.exe
+          if-no-files-found: error
+
+  qa-nightly:
+    name: QA Nightly Acceptance
+    if: github.event_name == 'schedule'
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Execute QA gates
+        run: npm run test:qa
+
+      - name: Upload QA reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-nightly-reports
+          path: test-results/qa/*.json
+          if-no-files-found: error
+
+  qa-pre-release:
+    name: QA Pre-Release Acceptance
+    if: github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && github.event.inputs.run_qa_pre_release == 'true')
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Execute QA gates
+        run: npm run test:qa
+
+      - name: Upload QA reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-pre-release-reports
+          path: test-results/qa/*.json
+          if-no-files-found: error

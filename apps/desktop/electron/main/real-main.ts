@@ -2,6 +2,7 @@ import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 
 import { writeLogRecord } from "../../infra/logging/file-logger.js";
+import { bootstrapSqliteStorage } from "../../infra/storage/sqlite/bootstrap.js";
 import { checkForUpdates } from "../../infra/updater/check-updates.js";
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
@@ -27,11 +28,18 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.rollback, async (_event, payload) => handlers.rollback(context, payload));
   ipcMain.handle(IPC_CHANNELS.exportLogs, async (_event, payload) => handlers.exportLogs(context, payload));
   ipcMain.handle(IPC_CHANNELS.saveWhitelist, async (_event, payload) => handlers.saveWhitelist(context, payload));
+  ipcMain.handle(IPC_CHANNELS.setReadOnlyMode, async (_event, payload) => handlers.setReadOnlyMode(context, payload));
   ipcMain.handle(IPC_CHANNELS.getSettings, async (_event, payload) => handlers.getSettings(context, payload));
   ipcMain.handle(IPC_CHANNELS.getLogStatus, async (_event, payload) => handlers.getLogStatus(context, payload));
   ipcMain.handle(IPC_CHANNELS.clearLogs, async (_event, payload) => handlers.clearLogs(context, payload));
   ipcMain.handle(IPC_CHANNELS.reportClientError, async (_event, payload) => handlers.reportClientError(context, payload));
   ipcMain.handle(IPC_CHANNELS.checkUpdates, async (_event, payload) => handlers.checkUpdates(context, payload));
+  ipcMain.handle(IPC_CHANNELS.downloadUpdate, async (_event, payload) => handlers.downloadUpdate(context, payload));
+  ipcMain.handle(IPC_CHANNELS.installUpdate, async (_event, payload) => handlers.installUpdate(context, payload));
+  ipcMain.handle(IPC_CHANNELS.submitFollowup, async (_event, payload) => handlers.submitFollowup(context, payload));
+  ipcMain.handle(IPC_CHANNELS.saveCorrections, async (_event, payload) => handlers.saveCorrections(context, payload));
+  ipcMain.handle(IPC_CHANNELS.listRules, async (_event, payload) => handlers.listRules(context, payload));
+  ipcMain.handle(IPC_CHANNELS.updateRule, async (_event, payload) => handlers.updateRule(context, payload));
 };
 
 const appDataRoot = app.getPath("userData");
@@ -41,7 +49,8 @@ const appLogRoot = join(appDataRoot, "logs");
 const context: HandlerContext = {
   appDataRoot,
   workspaceRoot,
-  appVersion: app.getVersion()
+  appVersion: app.getVersion(),
+  quitApp: () => app.quit()
 };
 
 const safeWriteMainLog = async (params: Parameters<typeof writeLogRecord>[1]): Promise<void> => {
@@ -78,6 +87,33 @@ process.on("unhandledRejection", async (reason) => {
 });
 
 void app.whenReady().then(async () => {
+  delete process.env.ELECTRON_RUN_AS_NODE;
+
+  try {
+    const sqliteBootstrap = await bootstrapSqliteStorage(appDataRoot);
+    await safeWriteMainLog({
+      level: "info",
+      category: "audit",
+      code: "SQLITE_BOOTSTRAPPED",
+      message: "sqlite storage bootstrapped",
+      traceId: crypto.randomUUID(),
+      details: {
+        dbPath: sqliteBootstrap.dbPath,
+        appliedMigrations: sqliteBootstrap.appliedMigrations,
+        importedLegacyRecords: sqliteBootstrap.importedLegacyRecords
+      }
+    });
+  } catch (error) {
+    await safeWriteMainLog({
+      level: "error",
+      category: "error",
+      code: "SQLITE_BOOTSTRAP_FAILED",
+      message: error instanceof Error ? error.message : "unknown error",
+      traceId: crypto.randomUUID()
+    });
+    throw error;
+  }
+
   registerIpc(context);
   await createMainWindow();
 

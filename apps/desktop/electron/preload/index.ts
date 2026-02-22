@@ -9,11 +9,18 @@ const api: FilePilotApi = {
   rollback: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.rollback, payload),
   exportLogs: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.exportLogs, payload),
   saveWhitelist: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.saveWhitelist, payload),
+  setReadOnlyMode: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.setReadOnlyMode, payload),
   reportClientError: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.reportClientError, payload),
   checkUpdates: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.checkUpdates, payload ?? {}),
+  downloadUpdate: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.downloadUpdate, payload ?? {}),
+  installUpdate: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.installUpdate, payload),
   getSettings: async () => ipcRenderer.invoke(IPC_CHANNELS.getSettings, {}),
   getLogStatus: async () => ipcRenderer.invoke(IPC_CHANNELS.getLogStatus, {}),
-  clearLogs: async () => ipcRenderer.invoke(IPC_CHANNELS.clearLogs, {})
+  clearLogs: async () => ipcRenderer.invoke(IPC_CHANNELS.clearLogs, {}),
+  submitFollowup: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.submitFollowup, payload),
+  saveCorrections: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.saveCorrections, payload),
+  listRules: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.listRules, payload ?? {}),
+  updateRule: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.updateRule, payload)
 };
 
 contextBridge.exposeInMainWorld("filePilotApi", api);

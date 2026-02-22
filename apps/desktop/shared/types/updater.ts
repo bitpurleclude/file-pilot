@@ -5,5 +5,11 @@ export interface UpdateInfo {
   currentVersion: string;
   latestVersion?: string;
   releaseUrl?: string;
+  downloadUrl?: string;
   notes?: string;
+}
+
+export interface DownloadedUpdateInfo {
+  version: string;
+  installerPath: string;
 }

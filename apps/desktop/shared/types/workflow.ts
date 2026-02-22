@@ -22,6 +22,14 @@ export type SessionStatus =
 
 export type ConflictPolicy = "rename" | "overwrite" | "skip";
 export type ExecuteAction = "move" | "copy";
+export type ConfidenceBand = "high" | "medium" | "low";
+export type DecisionSource =
+  | "rule"
+  | "llm-primary"
+  | "llm-secondary"
+  | "local-fallback"
+  | "followup"
+  | "manual-correction";
 
 export interface FileItem {
   id: string;
@@ -46,6 +54,10 @@ export interface Classification {
   timeBucket?: string;
   confidence: number;
   reasons: string[];
+  confidenceBand?: ConfidenceBand;
+  decisionSource?: DecisionSource;
+  promptVersion?: string;
+  model?: string;
 }
 
 export interface PlacementPlan {
@@ -70,4 +82,19 @@ export interface Session {
   updatedAt: string;
   itemIds: string[];
   executions: ExecutionResult[];
+}
+
+export interface FollowUpQuestion {
+  fileId: string;
+  question: string;
+}
+
+export interface ProcessedSessionItem {
+  item: FileItem;
+  summary: ContentSummary;
+  classification: Classification;
+  plan: PlacementPlan;
+  needsFollowUp: boolean;
+  followUpQuestion?: string;
+  decisionSource: DecisionSource;
 }

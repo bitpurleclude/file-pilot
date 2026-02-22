@@ -1,5 +1,8 @@
+import { mkdir, writeFile } from "node:fs/promises";
+import { basename, join } from "node:path";
+
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
-import type { UpdateChannel, UpdateInfo } from "../../shared/types/updater.js";
+import type { DownloadedUpdateInfo, UpdateChannel, UpdateInfo } from "../../shared/types/updater.js";
 
 interface GithubRelease {
   tag_name: string;
@@ -7,6 +10,10 @@ interface GithubRelease {
   draft: boolean;
   html_url: string;
   body: string;
+  assets?: Array<{
+    name: string;
+    browser_download_url: string;
+  }>;
 }
 
 const normalizeVersion = (value: string): string => value.trim().replace(/^v/i, "");
@@ -43,6 +50,11 @@ const pickRelease = (releases: GithubRelease[], channel: UpdateChannel): GithubR
     .sort((a, b) => compareVersions(normalizeVersion(b.tag_name), normalizeVersion(a.tag_name)))[0];
 };
 
+const pickWindowsInstallerAsset = (release: GithubRelease): { name: string; browser_download_url: string } | undefined => {
+  const assets = release.assets ?? [];
+  return assets.find((asset) => asset.name.toLowerCase().endsWith(".exe"));
+};
+
 export const checkForUpdates = async (params: {
   currentVersion: string;
   channel?: UpdateChannel;
@@ -76,11 +88,14 @@ export const checkForUpdates = async (params: {
       return { available: false, currentVersion };
     }
 
+    const downloadUrl = pickWindowsInstallerAsset(latest)?.browser_download_url;
+
     return {
       available: true,
       currentVersion,
       latestVersion,
       releaseUrl: latest.html_url,
+      ...(downloadUrl === undefined ? {} : { downloadUrl }),
       notes: latest.body
     };
   } catch {
@@ -88,8 +103,55 @@ export const checkForUpdates = async (params: {
   }
 };
 
+export const downloadLatestInstaller = async (params: {
+  channel?: UpdateChannel;
+  downloadRoot: string;
+  fetchImpl?: typeof fetch;
+}): Promise<DownloadedUpdateInfo> => {
+  const fetchImpl = params.fetchImpl ?? fetch;
+  const channel = params.channel ?? UPDATER_CONFIG.channel;
+  const apiUrl = `https://api.github.com/repos/${UPDATER_CONFIG.githubOwner}/${UPDATER_CONFIG.githubRepo}/releases`;
+
+  const response = await fetchImpl(apiUrl, {
+    headers: {
+      Accept: "application/vnd.github+json"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error("failed to fetch releases");
+  }
+
+  const releases = (await response.json()) as GithubRelease[];
+  const latest = pickRelease(releases, channel);
+  if (latest === undefined) {
+    throw new Error("no release found for selected channel");
+  }
+
+  const installerAsset = pickWindowsInstallerAsset(latest);
+  if (installerAsset === undefined) {
+    throw new Error("installer asset not found");
+  }
+
+  const installerResponse = await fetchImpl(installerAsset.browser_download_url);
+  if (!installerResponse.ok) {
+    throw new Error("failed to download installer");
+  }
+
+  const bytes = new Uint8Array(await installerResponse.arrayBuffer());
+  await mkdir(params.downloadRoot, { recursive: true });
+  const filePath = join(params.downloadRoot, basename(installerAsset.name));
+  await writeFile(filePath, bytes);
+
+  return {
+    version: normalizeVersion(latest.tag_name),
+    installerPath: filePath
+  };
+};
+
 export const __test__ = {
   compareVersions,
   normalizeVersion,
-  pickRelease
+  pickRelease,
+  pickWindowsInstallerAsset
 };

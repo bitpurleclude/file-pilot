@@ -1,56 +1,53 @@
-# E2E 测试规划（全面性保障）
+﻿# E2E Test Plan (M2/M3)
 
-## 目标
+## Scope
 
-- 覆盖 M1 主路径与高风险异常路径，重点防“安装后白屏”和 IPC 断链。
-- 与发布门禁对齐：`typecheck/lint/unit/integration/e2e` 全绿。
+This plan covers the M2/M3 delivery baseline:
+- rule-first classification pipeline (`rule -> primary LLM -> secondary LLM -> local fallback`)
+- low-confidence follow-up flow
+- rule learning and management
+- SQLite bootstrap + migration + legacy JSON import startup path
 
-## 测试分层
+## Test Matrix
 
-1. Unit：纯函数与规则（已覆盖）
-2. Integration：用例编排、日志落盘、导出聚合（已覆盖/持续补齐）
-3. E2E：应用启动与用户关键流程（本规划重点）
+1. Startup and preload contract
+- app launches without white screen
+- `window.filePilotApi` is injected
+- newly added methods are available: `submitFollowup`, `saveCorrections`, `listRules`, `updateRule`
 
-## E2E 场景矩阵
+2. Core workflow
+- whitelist save works
+- analyze returns enriched fields (`confidenceBand`, `decisionSource`, `needsFollowUp`)
+- low-confidence item can be answered through follow-up API
+- dry-run apply keeps source files unchanged
 
-### A. 启动与稳定性
+3. Rule learning workflow
+- user correction can be persisted as rule
+- subsequent similar file hits learned rule directly
 
-- A1: 首次启动渲染成功（无白屏）
-- A2: preload API 注入成功（`window.filePilotApi` 可用）
-- A3: 主进程异常可记录日志
+4. Error and fallback workflow
+- non-whitelist paths are rejected with stable error code
+- invalid LLM response falls back to local rule
+- renderer error reporting is persisted
 
-### B. 业务主路径
+5. Migration workflow
+- app starts with SQLite migration enabled
+- legacy JSON import path runs once and does not block analysis
 
-- B1: 设置白名单 -> 拖拽文件 -> 分析成功
-- B2: Dry-run 成功且不改动源文件
-- B3: 回滚入口可执行并返回成功
-- B4: 导出日志成功且文件可读
+6. Packaging smoke
+- NSIS artifact exists after `dist:win`
+- packaged artifact smoke check passes
 
-### C. 异常与边界
+## Runtime Stability Rules
 
-- C1: 非白名单路径分析被拒绝且有错误码
-- C2: LLM 返回非法 JSON 时回退到本地规则
-- C3: IPC handler 抛错时 UI 可见失败消息且日志落盘
+1. Electron launch helper must clear `ELECTRON_RUN_AS_NODE` explicitly.
+2. E2E execution must rebuild native module for Electron ABI before test run.
+3. All E2E tests run with single worker for deterministic filesystem side effects.
 
-### D. 打包后验证
+## CI Gates
 
-- D1: 安装包启动成功
-- D2: 首屏渲染成功
-- D3: 基础按钮可点击且 IPC 可返回
+PR/main gates include:
+- startup/workflow/error-path/rule-learning/migration E2E specs
+- package smoke in dedicated Windows packaging job
 
-## 实施建议
-
-- 工具：Playwright（Electron 模式）+ 打包后 smoke 脚本
-- 数据：使用临时目录沙箱，禁止污染真实目录
-- 稳定性：固定超时、重试策略、失败自动抓取日志与截图
-
-## 里程碑
-
-1. M1.1：先落地 A/B 基础场景（已落地）
-2. M1.2：补齐 C 异常场景（已落地 C1/C2/C3 基础验证）
-3. M1.3：接入 D 打包后 smoke 到发布流程（已落地基础产物检测）
-
-## 当前未拍板项
-
-- E2E 在 CI 的执行环境（有头/无头，是否允许虚拟桌面）
-- 安装包 smoke 的执行频率（每次 beta / 每日夜构）
+Nightly and pre-release QA gates are defined separately in `ci-gates.yml`.

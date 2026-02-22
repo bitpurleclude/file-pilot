@@ -79,7 +79,7 @@ const callWithRetry = async (request: ChatCompletionRequest): Promise<string | n
 export const callLlmWithFallback = async (params: {
   settings: AppSettings;
   messages: ChatMessage[];
-}): Promise<{ content: string; model: string } | null> => {
+}): Promise<{ content: string; model: string; source: "llm-primary" | "llm-secondary" } | null> => {
   const primary = await callWithRetry({
     baseUrl: params.settings.llm.baseUrl,
     apiKey: params.settings.llm.apiKey,
@@ -88,7 +88,7 @@ export const callLlmWithFallback = async (params: {
   });
 
   if (primary !== null) {
-    return { content: primary, model: params.settings.llm.primaryModel };
+    return { content: primary, model: params.settings.llm.primaryModel, source: "llm-primary" };
   }
 
   const secondary = await callWithRetry({
@@ -99,7 +99,7 @@ export const callLlmWithFallback = async (params: {
   });
 
   if (secondary !== null) {
-    return { content: secondary, model: params.settings.llm.secondaryModel };
+    return { content: secondary, model: params.settings.llm.secondaryModel, source: "llm-secondary" };
   }
 
   return null;

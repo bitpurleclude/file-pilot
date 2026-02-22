@@ -1,10 +1,10 @@
 import { z } from "zod";
 
-import type { Classification } from "../../shared/types/workflow.js";
-import type { AppSettings } from "../../shared/types/settings.js";
 import type { LlmClassifier } from "../../core/usecases/classify-files.js";
-import { CLASSIFY_PROMPT_VERSION, renderClassifyPrompt } from "./prompt-renderer.js";
+import type { AppSettings } from "../../shared/types/settings.js";
+import type { Classification } from "../../shared/types/workflow.js";
 import { callLlmWithFallback } from "./llm-gateway.js";
+import { CLASSIFY_PROMPT_VERSION, renderClassifyPrompt } from "./prompt-renderer.js";
 
 const classifyResponseSchema = z.object({
   purpose: z.enum([
@@ -27,10 +27,22 @@ const classifyResponseSchema = z.object({
 
 const buildRuleResult = (ext: string): Classification => {
   if (["png", "jpg", "jpeg"].includes(ext)) {
-    return { purpose: "Media", project: "默认项目", confidence: 0.88, reasons: ["llm-fallback-rule:media"] };
+    return {
+      purpose: "Media",
+      project: "默认项目",
+      confidence: 0.88,
+      reasons: ["llm-fallback-rule:media"],
+      decisionSource: "local-fallback"
+    };
   }
 
-  return { purpose: "Documents", project: "默认项目", confidence: 0.7, reasons: ["llm-fallback-rule:doc"] };
+  return {
+    purpose: "Documents",
+    project: "默认项目",
+    confidence: 0.7,
+    reasons: ["llm-fallback-rule:doc"],
+    decisionSource: "local-fallback"
+  };
 };
 
 export class RuleFirstLlmClassifier implements LlmClassifier {
@@ -57,6 +69,9 @@ export class RuleFirstLlmClassifier implements LlmClassifier {
         const parsed = classifyResponseSchema.parse(JSON.parse(result.content));
         return {
           ...parsed,
+          decisionSource: result.source,
+          promptVersion: CLASSIFY_PROMPT_VERSION,
+          model: result.model,
           reasons: [...parsed.reasons, `prompt_version:${CLASSIFY_PROMPT_VERSION}`, `model:${result.model}`]
         };
       } catch {
@@ -67,3 +82,4 @@ export class RuleFirstLlmClassifier implements LlmClassifier {
     return buildRuleResult(input.item.ext);
   }
 }
+

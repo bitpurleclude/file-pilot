@@ -46,6 +46,16 @@ describe("process-session", () => {
 
     const settings: AppSettings = {
       whitelistDirectories: [root],
+      readOnlyMode: false,
+      classification: {
+        highConfidenceMin: 0.85,
+        mediumConfidenceMin: 0.6,
+        askThreshold: 0.6
+      },
+      ruleLearning: {
+        enabled: true,
+        autoApplyThreshold: 0.9
+      },
       llm: {
         baseUrl: "https://api.openai.com/v1",
         primaryModel: "gpt-4.1",
@@ -58,11 +68,90 @@ describe("process-session", () => {
       settings,
       workspaceRoot: join(root, "workspace"),
       classifier: new RuleFirstLlmClassifier(settings),
+      rules: [],
       now: new Date(2026, 1, 12, 10, 11, 12)
     });
 
     expect(result.plans.length).toBe(1);
     expect(result.classifications.length).toBe(1);
+    expect(result.items.length).toBe(1);
+    expect(result.needsFollowUp).toBe(false);
     expect(result.plans[0]?.targetPath).toContain("workspace");
+  });
+
+  it("returns follow-up questions for low confidence items and uses learned rule on next run", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-m1-low-confidence-"));
+    tempDirs.push(root);
+    const input = join(root, "note.txt");
+    await writeFile(input, "low confidence content", "utf-8");
+
+    const settings: AppSettings = {
+      whitelistDirectories: [root],
+      readOnlyMode: false,
+      classification: {
+        highConfidenceMin: 0.85,
+        mediumConfidenceMin: 0.6,
+        askThreshold: 0.6
+      },
+      ruleLearning: {
+        enabled: true,
+        autoApplyThreshold: 0.9
+      },
+      llm: {
+        baseUrl: "https://api.openai.com/v1",
+        primaryModel: "gpt-4.1",
+        secondaryModel: "gpt-4.1-mini"
+      }
+    };
+
+    const lowConfidenceClassifier = {
+      classify: async () => ({
+        purpose: "Others" as const,
+        project: "unknown",
+        confidence: 0.3,
+        reasons: ["mock-low"],
+        decisionSource: "llm-primary" as const
+      })
+    };
+
+    const first = await processSession({
+      filePaths: [input],
+      settings,
+      workspaceRoot: join(root, "workspace"),
+      classifier: lowConfidenceClassifier,
+      rules: [],
+      now: new Date(2026, 1, 12, 10, 11, 12)
+    });
+
+    expect(first.needsFollowUp).toBe(true);
+    expect(first.followUpQuestions.length).toBe(1);
+
+    const second = await processSession({
+      filePaths: [input],
+      settings,
+      workspaceRoot: join(root, "workspace"),
+      classifier: lowConfidenceClassifier,
+      rules: [{
+        id: "rule-1",
+        purpose: "Study",
+        project: "Chem",
+        matcher: {
+          ext: "txt",
+          pathPrefix: root,
+          keywords: [],
+          negativeKeywords: []
+        },
+        priority: 100,
+        enabled: true,
+        source: "learned",
+        hits: 0,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      }],
+      now: new Date(2026, 1, 12, 10, 11, 12)
+    });
+
+    expect(second.items[0]?.classification.project).toBe("Chem");
+    expect(second.items[0]?.classification.decisionSource).toBe("rule");
   });
 });

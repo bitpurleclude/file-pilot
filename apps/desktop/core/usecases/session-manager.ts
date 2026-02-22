@@ -2,14 +2,14 @@ import type { ExecutionResult, Session, SessionStatus } from "../../shared/types
 
 const nowIso = (): string => new Date().toISOString();
 
-export const createSession = (itemIds: string[]): Session => {
+export const createSession = (params: { itemIds: string[]; sessionId?: string }): Session => {
   const now = nowIso();
   return {
-    id: crypto.randomUUID(),
+    id: params.sessionId ?? crypto.randomUUID(),
     status: "pending",
     createdAt: now,
     updatedAt: now,
-    itemIds,
+    itemIds: params.itemIds,
     executions: []
   };
 };
