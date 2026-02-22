@@ -10,7 +10,7 @@ export interface SqliteBootstrapResult {
 }
 
 const sqliteMigrationsPath = (): string => {
-  return join(process.cwd(), "apps", "desktop", "infra", "storage", "sqlite", "migrations");
+  return join(__dirname, "migrations");
 };
 
 export const bootstrapSqliteStorage = async (appDataRoot: string): Promise<SqliteBootstrapResult> => {
@@ -34,4 +34,3 @@ export const bootstrapSqliteStorage = async (appDataRoot: string): Promise<Sqlit
     importedLegacyRecords
   };
 };
-

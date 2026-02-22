@@ -146,6 +146,8 @@ jobs:
         run: npm run dist:win
 
       - name: Playwright smoke for packaged artifact
+        env:
+          FILE_PILOT_RUN_PACKAGED_SMOKE: "1"
         run: npx playwright test apps/desktop/tests/e2e/package-smoke.spec.ts
 
       - name: Upload installer artifact

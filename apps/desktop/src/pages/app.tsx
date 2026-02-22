@@ -2,6 +2,10 @@ import { useEffect, useMemo, useState, type DragEvent } from "react";
 
 import type { ClassificationRule } from "../../shared/types/rules.js";
 import type { Purpose } from "../../shared/types/workflow.js";
+import { ClassificationFeedbackPanel } from "./components/classification-feedback-panel.js";
+import { FirstRunWizard } from "./components/first-run-wizard.js";
+import { RuleManagementPanel } from "./components/rule-management-panel.js";
+import type { AnalyzeData } from "./types.js";
 
 const genSessionId = (): string => crypto.randomUUID();
 
@@ -12,16 +16,6 @@ const parseDroppedFiles = (event: DragEvent<HTMLDivElement>): string[] => {
     return maybePath ?? file.name;
   });
 };
-
-interface AnalyzeData {
-  sessionId: string;
-  needsFollowUp: boolean;
-  followUpQuestions: Array<{ fileId: string; question: string }>;
-  items: Array<{
-    item: { id: string; name: string };
-    classification: { purpose: Purpose; project: string; confidence: number; decisionSource?: string };
-  }>;
-}
 
 const purposeOptions: Purpose[] = [
   "Documents",
@@ -40,7 +34,7 @@ const purposeOptions: Purpose[] = [
 export const App = (): JSX.Element => {
   const [sessionId, setSessionId] = useState<string>(genSessionId());
   const [filePaths, setFilePaths] = useState<string[]>([]);
-  const [message, setMessage] = useState<string>("拖入文件开始 M2/M3 流程");
+  const [message, setMessage] = useState<string>("Drop files to start M2/M3 workflow");
   const [anonymize, setAnonymize] = useState<boolean>(true);
   const [whitelistInput, setWhitelistInput] = useState<string>("");
   const [wizardVisible, setWizardVisible] = useState<boolean>(false);
@@ -52,9 +46,9 @@ export const App = (): JSX.Element => {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [downloadedInstallerPath, setDownloadedInstallerPath] = useState<string | null>(null);
   const [analyzeData, setAnalyzeData] = useState<AnalyzeData | null>(null);
-  const [followupAnswer, setFollowupAnswer] = useState<string>("默认项目");
+  const [followupAnswer, setFollowupAnswer] = useState<string>("Default Project");
   const [correctionPurpose, setCorrectionPurpose] = useState<Purpose>("Documents");
-  const [correctionProject, setCorrectionProject] = useState<string>("默认项目");
+  const [correctionProject, setCorrectionProject] = useState<string>("Default Project");
   const [saveAsRule, setSaveAsRule] = useState<boolean>(true);
   const [rules, setRules] = useState<ClassificationRule[]>([]);
 
@@ -73,9 +67,9 @@ export const App = (): JSX.Element => {
         if (settingsResult.data.whitelistDirectories.length === 0) {
           if (!settingsResult.data.readOnlyMode) {
             setWizardVisible(true);
-            setMessage("首次运行，请完成白名单三步引导");
+            setMessage("First run detected, complete whitelist setup");
           } else {
-            setMessage("当前为只读模式，可先体验界面后再配置白名单");
+            setMessage("Read-only mode enabled, configure whitelist later");
           }
         } else {
           setWhitelistInput(settingsResult.data.whitelistDirectories.join(";"));
@@ -94,29 +88,29 @@ export const App = (): JSX.Element => {
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
     setFilePaths(parseDroppedFiles(event));
-    setMessage("已获取拖拽文件，准备分析");
+    setMessage("Files received, ready to analyze");
   };
 
   const onAnalyze = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC 未就绪");
+      setMessage("IPC not ready");
       return;
     }
 
     if (readOnlyMode) {
-      setMessage("当前为只读模式，请先配置白名单后再分析");
+      setMessage("Read-only mode is active, configure whitelist first");
       return;
     }
 
     const result = await window.filePilotApi.analyze({ sessionId, filePaths });
     if (!result.ok) {
-      setMessage(`分析失败: ${result.error.message}`);
+      setMessage(`Analyze failed: ${result.error.message}`);
       return;
     }
 
     const data = result.data as AnalyzeData;
     setAnalyzeData(data);
-    setMessage(data.needsFollowUp ? "分析完成，存在低置信度项，请先补充追问" : "分析完成，已生成 Dry-run 计划");
+    setMessage(data.needsFollowUp ? "Analyze completed, follow-up is required" : "Analyze completed with dry-run plan");
   };
 
   const onSubmitFollowup = async (): Promise<void> => {
@@ -131,11 +125,11 @@ export const App = (): JSX.Element => {
     });
 
     if (!result.ok) {
-      setMessage(`追问提交失败: ${result.error.message}`);
+      setMessage(`Submit follow-up failed: ${result.error.message}`);
       return;
     }
 
-    setMessage("追问答案已应用");
+    setMessage("Follow-up answers applied");
   };
 
   const onSaveCorrection = async (): Promise<void> => {
@@ -152,11 +146,11 @@ export const App = (): JSX.Element => {
     });
 
     if (!result.ok) {
-      setMessage(`保存修正失败: ${result.error.message}`);
+      setMessage(`Save correction failed: ${result.error.message}`);
       return;
     }
 
-    setMessage(saveAsRule ? "修正已保存并沉淀为规则" : "修正已保存");
+    setMessage(saveAsRule ? "Correction saved and promoted to rule" : "Correction saved");
   };
 
   const onListRules = async (): Promise<void> => {
@@ -166,12 +160,12 @@ export const App = (): JSX.Element => {
 
     const result = await window.filePilotApi.listRules({ includeDisabled: true });
     if (!result.ok) {
-      setMessage(`读取规则失败: ${result.error.message}`);
+      setMessage(`List rules failed: ${result.error.message}`);
       return;
     }
 
     setRules(result.data);
-    setMessage(`已加载 ${result.data.length} 条规则`);
+    setMessage(`Loaded ${result.data.length} rules`);
   };
 
   const onToggleRule = async (rule: ClassificationRule): Promise<void> => {
@@ -185,7 +179,7 @@ export const App = (): JSX.Element => {
     });
 
     if (!result.ok) {
-      setMessage(`更新规则失败: ${result.error.message}`);
+      setMessage(`Update rule failed: ${result.error.message}`);
       return;
     }
 
@@ -194,7 +188,7 @@ export const App = (): JSX.Element => {
 
   const onSaveWhitelist = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC 未就绪");
+      setMessage("IPC not ready");
       return;
     }
 
@@ -204,7 +198,7 @@ export const App = (): JSX.Element => {
       .filter((item) => item.length > 0);
 
     if (directories.length === 0) {
-      setMessage("请先输入白名单目录，多个目录用分号分隔");
+      setMessage("Input whitelist directories first, use ';' to split");
       return;
     }
 
@@ -212,11 +206,11 @@ export const App = (): JSX.Element => {
     if (result.ok) {
       setReadOnlyMode(false);
       setWizardVisible(false);
-      setMessage("白名单已保存");
+      setMessage("Whitelist saved");
       return;
     }
 
-    setMessage(`白名单保存失败: ${result.error.message}`);
+    setMessage(`Save whitelist failed: ${result.error.message}`);
   };
 
   const onClearLogs = async (): Promise<void> => {
@@ -226,7 +220,7 @@ export const App = (): JSX.Element => {
 
     const result = await window.filePilotApi.clearLogs();
     if (!result.ok) {
-      setMessage(`日志清理失败: ${result.error.message}`);
+      setMessage(`Clear logs failed: ${result.error.message}`);
       return;
     }
 
@@ -235,24 +229,24 @@ export const App = (): JSX.Element => {
       setLogStatus(status.data);
     }
 
-    setMessage("日志已清理");
+    setMessage("Logs cleared");
   };
 
   const onEnableReadOnlyMode = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC 未就绪");
+      setMessage("IPC not ready");
       return;
     }
 
     const result = await window.filePilotApi.setReadOnlyMode({ enabled: true });
     if (!result.ok) {
-      setMessage(`只读模式设置失败: ${result.error.message}`);
+      setMessage(`Set read-only failed: ${result.error.message}`);
       return;
     }
 
     setReadOnlyMode(true);
     setWizardVisible(false);
-    setMessage("已进入只读模式，可稍后在白名单中完成配置");
+    setMessage("Read-only mode enabled");
   };
 
   const onRefreshLogStatus = async (): Promise<void> => {
@@ -263,63 +257,8 @@ export const App = (): JSX.Element => {
     const status = await window.filePilotApi.getLogStatus();
     if (status.ok) {
       setLogStatus(status.data);
-      setMessage(status.data.warn ? "日志体积接近阈值" : "日志体积正常");
+      setMessage(status.data.warn ? "Log size is close to warning threshold" : "Log size is healthy");
     }
-  };
-
-  const renderWizard = (): JSX.Element | null => {
-    if (!wizardVisible) {
-      return null;
-    }
-
-    return (
-      <section className="wizard">
-        <h2>首次运行白名单引导（第 {wizardStep} / 3 步）</h2>
-
-        {wizardStep === 1 && (
-          <>
-            <p>请选择允许操作的目录（多个用 ; 分隔）。</p>
-            <input
-              placeholder="例如 D:/Workspace;D:/Study"
-              value={whitelistInput}
-              onChange={(event) => setWhitelistInput(event.target.value)}
-            />
-            <div className="controls">
-              <button onClick={() => setWizardStep(2)}>下一步</button>
-              <button onClick={onEnableReadOnlyMode}>跳过（只读体验）</button>
-            </div>
-          </>
-        )}
-
-        {wizardStep === 2 && (
-          <>
-            <p>风险提示：程序仅会在白名单目录内执行移动/复制。</p>
-            <label>
-              <input
-                type="checkbox"
-                checked={riskAccepted}
-                onChange={(event) => setRiskAccepted(event.target.checked)}
-              />
-              我已阅读并理解风险提示
-            </label>
-            <div className="controls">
-              <button onClick={() => setWizardStep(1)}>上一步</button>
-              <button onClick={() => setWizardStep(3)} disabled={!riskAccepted}>下一步</button>
-            </div>
-          </>
-        )}
-
-        {wizardStep === 3 && (
-          <>
-            <p>确认后将保存白名单并启用主流程。</p>
-            <div className="controls">
-              <button onClick={() => setWizardStep(2)}>上一步</button>
-              <button onClick={onSaveWhitelist}>确认并完成</button>
-            </div>
-          </>
-        )}
-      </section>
-    );
   };
 
   const onApplyDryRun = async (): Promise<void> => {
@@ -328,12 +267,12 @@ export const App = (): JSX.Element => {
     }
 
     if (readOnlyMode) {
-      setMessage("当前为只读模式，无法执行 Dry-run");
+      setMessage("Read-only mode blocks dry-run execution");
       return;
     }
 
     const result = await window.filePilotApi.apply({ sessionId, action: "move", dryRun: true });
-    setMessage(result.ok ? "Dry-run 完成，可确认执行" : `Dry-run 失败: ${result.error.message}`);
+    setMessage(result.ok ? "Dry-run completed" : `Dry-run failed: ${result.error.message}`);
   };
 
   const onRollback = async (): Promise<void> => {
@@ -342,12 +281,12 @@ export const App = (): JSX.Element => {
     }
 
     if (readOnlyMode) {
-      setMessage("当前为只读模式，无法执行回滚");
+      setMessage("Read-only mode blocks rollback");
       return;
     }
 
     const result = await window.filePilotApi.rollback({ sessionId });
-    setMessage(result.ok ? "会话回滚完成" : `回滚失败: ${result.error.message}`);
+    setMessage(result.ok ? "Rollback completed" : `Rollback failed: ${result.error.message}`);
   };
 
   const onExportLogs = async (): Promise<void> => {
@@ -356,66 +295,65 @@ export const App = (): JSX.Element => {
     }
 
     const result = await window.filePilotApi.exportLogs({ anonymize });
-    setMessage(result.ok ? `日志已导出: ${result.data.path}` : `导出失败: ${result.error.message}`);
+    setMessage(result.ok ? `Logs exported: ${result.data.path}` : `Export logs failed: ${result.error.message}`);
   };
 
   const onCheckUpdates = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC 未就绪");
+      setMessage("IPC not ready");
       return;
     }
 
     const result = await window.filePilotApi.checkUpdates({ channel: updateChannel });
     if (!result.ok) {
-      setMessage(`更新检查失败: ${result.error.message}`);
+      setMessage(`Check updates failed: ${result.error.message}`);
       return;
     }
 
     setLatestVersion(result.data.latestVersion ?? null);
     setDownloadedInstallerPath(null);
-
     setMessage(
       result.data.available
-        ? `发现新版本: ${result.data.latestVersion ?? "unknown"}`
-        : `当前已是最新版本 (${result.data.currentVersion})`
+        ? `Update found: ${result.data.latestVersion ?? "unknown"}`
+        : `Already latest version (${result.data.currentVersion})`
     );
   };
 
   const onDownloadUpdate = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC 未就绪");
+      setMessage("IPC not ready");
       return;
     }
 
     const result = await window.filePilotApi.downloadUpdate({ channel: updateChannel });
     if (!result.ok) {
-      setMessage(`下载更新失败: ${result.error.message}`);
+      setMessage(`Download update failed: ${result.error.message}`);
       return;
     }
 
     setDownloadedInstallerPath(result.data.installerPath);
     setLatestVersion(result.data.version);
-    setMessage(`更新已下载: v${result.data.version}`);
+    setMessage(`Update downloaded: v${result.data.version}`);
   };
 
   const onInstallUpdate = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC 未就绪");
+      setMessage("IPC not ready");
       return;
     }
 
     if (downloadedInstallerPath === null) {
-      setMessage("请先下载更新安装包");
+      setMessage("Download installer first");
       return;
     }
 
     const result = await window.filePilotApi.installUpdate({ installerPath: downloadedInstallerPath });
     if (!result.ok) {
-      setMessage(`启动安装失败: ${result.error.message}`);
+      setMessage(`Install update failed: ${result.error.message}`);
       return;
     }
 
-    setMessage("安装器已启动，应用将退出完成安装");
+    setMessage("Installer launched, app will exit");
   };
 
   return (
@@ -423,90 +361,72 @@ export const App = (): JSX.Element => {
       <h1>File-Pilot M2/M3</h1>
       <p>{message}</p>
 
-      {renderWizard()}
+      <FirstRunWizard
+        visible={wizardVisible}
+        step={wizardStep}
+        whitelistInput={whitelistInput}
+        riskAccepted={riskAccepted}
+        onWhitelistInputChange={setWhitelistInput}
+        onRiskAcceptedChange={setRiskAccepted}
+        onStepChange={setWizardStep}
+        onSkipReadOnly={onEnableReadOnlyMode}
+        onSaveWhitelist={onSaveWhitelist}
+      />
 
       <section
         className="dropzone"
         onDragOver={(event) => event.preventDefault()}
         onDrop={onDrop}
       >
-        拖拽文件到这里
+        Drop files here
       </section>
 
       <div className="controls">
         <input
-          placeholder="白名单目录，多个用 ; 分隔"
+          placeholder="Whitelist directories, split with ';'"
           value={whitelistInput}
           onChange={(event) => setWhitelistInput(event.target.value)}
         />
-        <button onClick={onSaveWhitelist}>保存白名单</button>
+        <button onClick={onSaveWhitelist}>Save Whitelist</button>
       </div>
 
       <div className="controls">
         <button onClick={onAnalyze} disabled={!canAnalyze}>
-          分析并规划
+          Analyze and Plan
         </button>
         <button onClick={onApplyDryRun} disabled={readOnlyMode}>
           Dry-run
         </button>
         <button onClick={onRollback} disabled={readOnlyMode}>
-          回滚
+          Rollback
         </button>
       </div>
 
-      {analyzeData !== null && analyzeData.needsFollowUp && (
-        <section className="controls">
-          <input
-            value={followupAnswer}
-            onChange={(event) => setFollowupAnswer(event.target.value)}
-            placeholder="低置信度追问答案（可整批）"
-          />
-          <button onClick={onSubmitFollowup}>提交追问</button>
-        </section>
-      )}
+      <ClassificationFeedbackPanel
+        analyzeData={analyzeData}
+        firstItemId={firstItemId}
+        followupAnswer={followupAnswer}
+        onFollowupAnswerChange={setFollowupAnswer}
+        onSubmitFollowup={onSubmitFollowup}
+        correctionPurpose={correctionPurpose}
+        purposeOptions={purposeOptions}
+        onCorrectionPurposeChange={setCorrectionPurpose}
+        correctionProject={correctionProject}
+        onCorrectionProjectChange={setCorrectionProject}
+        saveAsRule={saveAsRule}
+        onSaveAsRuleChange={setSaveAsRule}
+        onSaveCorrection={onSaveCorrection}
+      />
 
-      {analyzeData !== null && firstItemId !== undefined && (
-        <section className="controls">
-          <label>
-            修正用途
-            <select
-              value={correctionPurpose}
-              onChange={(event) => setCorrectionPurpose(event.target.value as Purpose)}
-            >
-              {purposeOptions.map((purpose) => (
-                <option key={purpose} value={purpose}>{purpose}</option>
-              ))}
-            </select>
-          </label>
-          <input
-            value={correctionProject}
-            onChange={(event) => setCorrectionProject(event.target.value)}
-            placeholder="修正项目"
-          />
-          <label>
-            <input
-              type="checkbox"
-              checked={saveAsRule}
-              onChange={(event) => setSaveAsRule(event.target.checked)}
-            />
-            沉淀为规则
-          </label>
-          <button onClick={onSaveCorrection}>保存修正</button>
-        </section>
-      )}
-
-      <section className="controls">
-        <button onClick={onListRules}>刷新规则列表</button>
-        {rules.map((rule) => (
-          <button key={rule.id} onClick={() => onToggleRule(rule)}>
-            {rule.enabled ? "禁用" : "启用"} {rule.project}
-          </button>
-        ))}
-      </section>
+      <RuleManagementPanel
+        rules={rules}
+        onRefreshRules={onListRules}
+        onToggleRule={onToggleRule}
+      />
 
       <div className="controls">
         <label>
-          更新通道
+          Update Channel
           <select value={updateChannel} onChange={(event) => setUpdateChannel(event.target.value as "beta" | "stable")}>
             <option value="beta">beta</option>
             <option value="stable">stable</option>
@@ -518,29 +438,29 @@ export const App = (): JSX.Element => {
             checked={anonymize}
             onChange={(event) => setAnonymize(event.target.checked)}
           />
-          日志匿名化
+          Anonymize logs
         </label>
-        <button onClick={onExportLogs}>导出日志</button>
-        <button onClick={onRefreshLogStatus}>日志状态</button>
-        <button onClick={onClearLogs}>清理日志</button>
-        <button onClick={onCheckUpdates}>检查更新</button>
-        <button onClick={onDownloadUpdate}>下载更新</button>
-        <button onClick={onInstallUpdate} disabled={downloadedInstallerPath === null}>重启安装</button>
-        <button onClick={() => setSessionId(genSessionId())}>新建会话</button>
+        <button onClick={onExportLogs}>Export Logs</button>
+        <button onClick={onRefreshLogStatus}>Refresh Log Status</button>
+        <button onClick={onClearLogs}>Clear Logs</button>
+        <button onClick={onCheckUpdates}>Check Updates</button>
+        <button onClick={onDownloadUpdate}>Download Update</button>
+        <button onClick={onInstallUpdate} disabled={downloadedInstallerPath === null}>Install Update</button>
+        <button onClick={() => setSessionId(genSessionId())}>New Session</button>
       </div>
 
       {logStatus !== null && (
         <p>
-          日志大小: {logStatus.sizeBytes} bytes {logStatus.warn ? "(接近阈值)" : "(正常)"}
+          Log Size: {logStatus.sizeBytes} bytes {logStatus.warn ? "(warn)" : "(ok)"}
         </p>
       )}
 
-      {readOnlyMode && <p>当前模式: 只读（白名单未配置）</p>}
+      {readOnlyMode && <p>Current Mode: Read-only</p>}
 
       {latestVersion !== null && (
         <p>
-          最新版本: {latestVersion}
-          {downloadedInstallerPath === null ? " (未下载)" : " (已下载)"}
+          Latest Version: {latestVersion}
+          {downloadedInstallerPath === null ? " (not downloaded)" : " (downloaded)"}
         </p>
       )}
 

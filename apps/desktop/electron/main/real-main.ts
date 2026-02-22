@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { writeLogRecord } from "../../infra/logging/file-logger.js";
 import { bootstrapSqliteStorage } from "../../infra/storage/sqlite/bootstrap.js";
+import { closeAllSqliteDatabases } from "../../infra/storage/sqlite/db.js";
 import { checkForUpdates } from "../../infra/updater/check-updates.js";
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
@@ -146,4 +147,8 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") {
     app.quit();
   }
+});
+
+app.on("before-quit", () => {
+  closeAllSqliteDatabases();
 });

@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "native:rebuild:node": "npm rebuild better-sqlite3",
-    "native:rebuild:electron": "node node_modules/@electron/rebuild/lib/cli.js -f -w better-sqlite3",
+    "native:rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "test": "npm run native:rebuild:node && vitest run --root . apps/desktop/tests/unit apps/desktop/tests/integration",
     "test:e2e": "npm run native:rebuild:electron && playwright test",
     "test:e2e:list": "playwright test --list",
@@ -16,7 +16,7 @@
     "test:qa:perf": "npm run native:rebuild:node && vitest run --root . apps/desktop/tests/qa/performance-100-files.test.ts",
     "test:qa:reliability": "npm run native:rebuild:node && vitest run --root . apps/desktop/tests/qa/rollback-reliability.test.ts",
     "build:renderer": "vite build",
-    "build:electron": "esbuild apps/desktop/electron/main/index.ts --bundle --platform=node --format=cjs --external:electron --external:better-sqlite3 --outfile=dist/electron/main.cjs && esbuild apps/desktop/electron/preload/index.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/electron/preload.cjs",
+    "build:electron": "esbuild apps/desktop/electron/main/index.ts --bundle --platform=node --format=cjs --external:electron --external:better-sqlite3 --outfile=dist/electron/main.cjs && esbuild apps/desktop/electron/preload/index.ts --bundle --platform=node --format=cjs --external:electron --outfile=dist/electron/preload.cjs && node scripts/copy-sqlite-migrations.mjs",
     "build": "npm run build:renderer && npm run build:electron",
     "dev": "vite",
     "pack": "npm pack",
@@ -30,6 +30,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@playwright/test": "^1.55.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^24.3.0",

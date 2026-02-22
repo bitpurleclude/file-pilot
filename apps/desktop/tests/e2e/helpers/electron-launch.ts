@@ -1,6 +1,11 @@
 import { _electron as electron } from "@playwright/test";
 
-export const launchElectronApp = async () => {
+interface LaunchElectronAppOptions {
+  executablePath?: string;
+  args?: string[];
+}
+
+export const launchElectronApp = async (options: LaunchElectronAppOptions = {}) => {
   const env: Record<string, string> = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (value !== undefined) {
@@ -10,8 +15,16 @@ export const launchElectronApp = async () => {
 
   delete env.ELECTRON_RUN_AS_NODE;
 
-  return electron.launch({
-    args: ["dist/electron/main.cjs"],
-    env
-  });
+  return electron.launch(
+    options.executablePath === undefined
+      ? {
+          args: options.args ?? ["dist/electron/main.cjs"],
+          env
+        }
+      : {
+          executablePath: options.executablePath,
+          args: options.args ?? [],
+          env
+        }
+  );
 };
