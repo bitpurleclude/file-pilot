@@ -1,13 +1,50 @@
-:root {
-  font-family: "Segoe UI", "PingFang SC", sans-serif;
-  color: #102335;
-  background: linear-gradient(135deg, #f7fafc 0%, #dbeafe 100%);
+@import "tailwindcss";
+
+/* ── shadcn/ui theme tokens ── */
+@theme inline {
+  --color-background: hsl(210 40% 98%);
+  --color-foreground: hsl(212 45% 17%);
+  --color-card: hsl(0 0% 100%);
+  --color-card-foreground: hsl(212 45% 17%);
+  --color-popover: hsl(0 0% 100%);
+  --color-popover-foreground: hsl(212 45% 17%);
+  --color-primary: hsl(221 83% 53%);
+  --color-primary-foreground: hsl(0 0% 100%);
+  --color-secondary: hsl(210 40% 96%);
+  --color-secondary-foreground: hsl(212 45% 17%);
+  --color-muted: hsl(210 40% 96%);
+  --color-muted-foreground: hsl(215 16% 47%);
+  --color-accent: hsl(210 40% 96%);
+  --color-accent-foreground: hsl(212 45% 17%);
+  --color-destructive: hsl(0 84% 60%);
+  --color-destructive-foreground: hsl(0 0% 100%);
+  --color-border: hsl(214 32% 91%);
+  --color-input: hsl(214 32% 91%);
+  --color-ring: hsl(221 83% 53%);
+  --radius-sm: 0.5rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
 }
 
-body {
-  margin: 0;
+/* ── Base layer: global resets ── */
+@layer base {
+  :root {
+    font-family: "Segoe UI", "PingFang SC", sans-serif;
+  }
+
+  body {
+    margin: 0;
+    color: var(--color-foreground);
+    background: linear-gradient(135deg, #f7fafc 0%, #dbeafe 100%);
+  }
+
+  * {
+    border-color: var(--color-border);
+  }
 }
 
+/* ── Legacy component styles (migrate to Tailwind classes incrementally) ── */
 .container {
   max-width: 920px;
   margin: 0 auto;

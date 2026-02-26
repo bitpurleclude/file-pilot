@@ -105,5 +105,48 @@
     "latestVersion": "Latest Version: {{version}}",
     "notDownloaded": "(not downloaded)",
     "downloaded": "(downloaded)"
+  },
+  "settings": {
+    "title": "Settings",
+    "back": "Back",
+    "save": "Save Settings",
+    "saved": "Settings saved",
+    "saveFailed": "Save settings failed: {{message}}",
+    "general": {
+      "title": "General",
+      "language": "Language",
+      "languageZh": "中文",
+      "languageEn": "English",
+      "readOnlyMode": "Read-only Mode",
+      "readOnlyModeDesc": "Disable file operations when enabled"
+    },
+    "classification": {
+      "title": "Classification",
+      "highConfidenceMin": "High Confidence Minimum",
+      "mediumConfidenceMin": "Medium Confidence Minimum",
+      "askThreshold": "Follow-up Threshold",
+      "ruleLearningEnabled": "Enable Rule Learning",
+      "autoApplyThreshold": "Auto Apply Threshold"
+    },
+    "llm": {
+      "title": "LLM Configuration",
+      "baseUrl": "API Base URL",
+      "apiKey": "API Key",
+      "apiKeyPlaceholder": "Enter API Key",
+      "primaryModel": "Primary Model",
+      "secondaryModel": "Secondary Model",
+      "testConnection": "Test Connection"
+    },
+    "logsSettings": {
+      "title": "Logs",
+      "currentSize": "Current Log Size",
+      "clearAll": "Clear All Logs",
+      "exportAll": "Export All Logs"
+    },
+    "advanced": {
+      "title": "Advanced",
+      "whitelistDirectories": "Whitelist Directories",
+      "whitelistPlaceholder": "Split directories with ';'"
+    }
   }
 }

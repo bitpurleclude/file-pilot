@@ -1,12 +1,16 @@
 import { useEffect, useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
+import { Settings } from "lucide-react";
 
+import type { AppSettings } from "../../shared/types/settings.js";
 import type { ClassificationRule } from "../../shared/types/rules.js";
 import type { Purpose } from "../../shared/types/workflow.js";
+import { Button } from "../components/ui/button.js";
 import { mergeAnalyzeData } from "./analyze-state.js";
 import { ClassificationFeedbackPanel } from "./components/classification-feedback-panel.js";
 import { FirstRunWizard } from "./components/first-run-wizard.js";
 import { RuleManagementPanel } from "./components/rule-management-panel.js";
+import { SettingsPage } from "./settings/settings-page.js";
 import type { AnalyzeData, SaveCorrectionsData, SubmitFollowupData } from "./types.js";
 
 const genSessionId = (): string => crypto.randomUUID();
@@ -35,6 +39,8 @@ const purposeOptions: Purpose[] = [
 
 export const App = (): JSX.Element => {
   const { t, i18n } = useTranslation();
+  const [currentPage, setCurrentPage] = useState<"main" | "settings">("main");
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
   const [sessionId, setSessionId] = useState<string>(genSessionId());
   const [filePaths, setFilePaths] = useState<string[]>([]);
   const [message, setMessage] = useState<string>("");
@@ -70,6 +76,8 @@ export const App = (): JSX.Element => {
 
       const settingsResult = await window.filePilotApi.getSettings();
       if (settingsResult.ok) {
+        setAppSettings(settingsResult.data);
+        setReadOnlyMode(settingsResult.data.readOnlyMode);
         setReadOnlyMode(settingsResult.data.readOnlyMode);
 
         if (settingsResult.data.language !== undefined) {
@@ -384,9 +392,34 @@ export const App = (): JSX.Element => {
     setMessage(t("app.installerLaunched"));
   };
 
+  const handleSettingsChange = (updated: AppSettings): void => {
+    setAppSettings(updated);
+    setReadOnlyMode(updated.readOnlyMode);
+    setWhitelistInput(updated.whitelistDirectories.join(";"));
+  };
+
+  if (currentPage === "settings" && appSettings !== null) {
+    return (
+      <SettingsPage
+        settings={appSettings}
+        logStatus={logStatus}
+        onBack={() => setCurrentPage("main")}
+        onSettingsChange={handleSettingsChange}
+        onClearLogs={onClearLogs}
+        onExportLogs={onExportLogs}
+        onRefreshLogStatus={onRefreshLogStatus}
+      />
+    );
+  }
+
   return (
     <main className="container">
-      <h1>{t("app.title")}</h1>
+      <div className="flex items-center justify-between mb-4">
+        <h1>{t("app.title")}</h1>
+        <Button variant="ghost" size="icon" onClick={() => setCurrentPage("settings")}>
+          <Settings className="h-5 w-5" />
+        </Button>
+      </div>
       <p>{message}</p>
 
       <FirstRunWizard

@@ -4,6 +4,7 @@ import {
   getLogStatusRequestSchema,
   getSettingsRequestSchema,
   reportClientErrorRequestSchema,
+  saveSettingsRequestSchema,
   saveWhitelistRequestSchema,
   setReadOnlyModeRequestSchema
 } from "../../../shared/ipc/contracts.js";
@@ -26,6 +27,7 @@ import {
   toJsonArray,
   traceId
 } from "./shared.js";
+import type { AppSettings } from "../../../shared/types/settings.js";
 
 export const systemHandlers = {
   exportLogs: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
@@ -160,6 +162,42 @@ export const systemHandlers = {
       });
 
       return { ok: true, data: { recorded: true } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  },
+
+  saveSettingsHandler: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+    try {
+      const req = saveSettingsRequestSchema.parse(payload);
+      const current = await loadSettings(settingsRootPath(context));
+      const mergedLlm: AppSettings["llm"] = {
+        baseUrl: req.llm?.baseUrl ?? current.llm.baseUrl,
+        primaryModel: req.llm?.primaryModel ?? current.llm.primaryModel,
+        secondaryModel: req.llm?.secondaryModel ?? current.llm.secondaryModel,
+      };
+      const reqApiKey = req.llm?.apiKey;
+      if (reqApiKey !== undefined) {
+        mergedLlm.apiKey = reqApiKey;
+      } else if (current.llm.apiKey !== undefined) {
+        mergedLlm.apiKey = current.llm.apiKey;
+      }
+      const next: AppSettings = {
+        ...current,
+        ...(req.language === undefined ? {} : { language: req.language }),
+        ...(req.readOnlyMode === undefined ? {} : { readOnlyMode: req.readOnlyMode }),
+        classification: {
+          ...current.classification,
+          ...req.classification
+        },
+        ruleLearning: {
+          ...current.ruleLearning,
+          ...req.ruleLearning
+        },
+        llm: mergedLlm
+      };
+      await saveSettings(settingsRootPath(context), next);
+      return { ok: true, data: next };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
     }

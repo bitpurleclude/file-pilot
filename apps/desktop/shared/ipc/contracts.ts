@@ -65,6 +65,26 @@ export const getLogStatusRequestSchema = z.object({}).default({});
 
 export const clearLogsRequestSchema = z.object({}).default({});
 
+export const saveSettingsRequestSchema = z.object({
+  language: z.enum(["zh-CN", "en"]).optional(),
+  readOnlyMode: z.boolean().optional(),
+  classification: z.object({
+    highConfidenceMin: z.number().min(0).max(1),
+    mediumConfidenceMin: z.number().min(0).max(1),
+    askThreshold: z.number().min(0).max(1)
+  }).optional(),
+  ruleLearning: z.object({
+    enabled: z.boolean(),
+    autoApplyThreshold: z.number().min(0).max(1)
+  }).optional(),
+  llm: z.object({
+    baseUrl: z.string().min(1),
+    apiKey: z.string().optional(),
+    primaryModel: z.string().min(1),
+    secondaryModel: z.string().min(1)
+  }).optional()
+});
+
 export const submitFollowupRequestSchema = z.object({
   sessionId: z.string().uuid(),
   answer: z.string().min(1),
@@ -123,6 +143,7 @@ export type SubmitFollowupRequest = z.infer<typeof submitFollowupRequestSchema>;
 export type SaveCorrectionsRequest = z.infer<typeof saveCorrectionsRequestSchema>;
 export type ListRulesRequest = z.infer<typeof listRulesRequestSchema>;
 export type UpdateRuleRequest = z.infer<typeof updateRuleRequestSchema>;
+export type SaveSettingsRequest = z.infer<typeof saveSettingsRequestSchema>;
 
 export const IPC_CHANNELS = {
   analyze: "fp:analyze",
@@ -141,5 +162,6 @@ export const IPC_CHANNELS = {
   submitFollowup: "fp:submit-followup",
   saveCorrections: "fp:save-corrections",
   listRules: "fp:list-rules",
-  updateRule: "fp:update-rule"
+  updateRule: "fp:update-rule",
+  saveSettings: "fp:save-settings"
 } as const;

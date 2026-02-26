@@ -59,6 +59,7 @@ export interface FilePilotApi {
   }): Promise<IpcResult<SaveCorrectionsResponseData>>;
   listRules(payload?: { includeDisabled?: boolean }): Promise<IpcResult<ClassificationRule[]>>;
   updateRule(payload: RuleUpdatePayload): Promise<IpcResult<ClassificationRule>>;
+  saveSettings(payload: Partial<AppSettings>): Promise<IpcResult<AppSettings>>;
 }
 
 declare global {

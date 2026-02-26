@@ -105,5 +105,48 @@
     "latestVersion": "最新版本：{{version}}",
     "notDownloaded": "（未下载）",
     "downloaded": "（已下载）"
+  },
+  "settings": {
+    "title": "设置",
+    "back": "返回",
+    "save": "保存设置",
+    "saved": "设置已保存",
+    "saveFailed": "保存设置失败：{{message}}",
+    "general": {
+      "title": "通用",
+      "language": "语言",
+      "languageZh": "中文",
+      "languageEn": "English",
+      "readOnlyMode": "只读模式",
+      "readOnlyModeDesc": "启用后禁止执行文件操作"
+    },
+    "classification": {
+      "title": "分类",
+      "highConfidenceMin": "高置信度最低阈值",
+      "mediumConfidenceMin": "中置信度最低阈值",
+      "askThreshold": "追问阈值",
+      "ruleLearningEnabled": "启用规则学习",
+      "autoApplyThreshold": "自动应用阈值"
+    },
+    "llm": {
+      "title": "LLM 配置",
+      "baseUrl": "API 地址",
+      "apiKey": "API 密钥",
+      "apiKeyPlaceholder": "输入 API 密钥",
+      "primaryModel": "主模型",
+      "secondaryModel": "备选模型",
+      "testConnection": "测试连接"
+    },
+    "logsSettings": {
+      "title": "日志",
+      "currentSize": "当前日志大小",
+      "clearAll": "清除所有日志",
+      "exportAll": "导出所有日志"
+    },
+    "advanced": {
+      "title": "高级",
+      "whitelistDirectories": "白名单目录",
+      "whitelistPlaceholder": "使用 ';' 分隔多个目录"
+    }
   }
 }

@@ -20,7 +20,8 @@ const api: FilePilotApi = {
   submitFollowup: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.submitFollowup, payload),
   saveCorrections: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.saveCorrections, payload),
   listRules: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.listRules, payload ?? {}),
-  updateRule: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.updateRule, payload)
+  updateRule: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.updateRule, payload),
+  saveSettings: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.saveSettings, payload)
 };
 
 contextBridge.exposeInMainWorld("filePilotApi", api);
