@@ -1,9 +1,46 @@
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { AppError } from "../../shared/errors/app-error.js";
 import { CLASSIFY_PROMPT_VERSION, renderClassifyPrompt } from "../../infra/llm/prompt-renderer.js";
 
 describe("prompt-renderer", () => {
+  it("renders classify template when process cwd is outside repo", () => {
+    const originalCwd = process.cwd();
+    const isolatedCwd = mkdtempSync(join(tmpdir(), "file-pilot-prompt-cwd-"));
+
+    try {
+      process.chdir(isolatedCwd);
+
+      const prompt = renderClassifyPrompt({
+        item: {
+          id: "f-2",
+          path: "C:/demo/notes.txt",
+          name: "notes.txt",
+          ext: "txt",
+          size: 10,
+          createdAt: "2026-02-12T00:00:00.000Z",
+          modifiedAt: "2026-02-12T00:00:00.000Z",
+          mime: "text/plain"
+        },
+        summary: {
+          textSnippet: "outside repo cwd",
+          keywords: ["outside", "cwd"],
+          language: "en"
+        }
+      });
+
+      expect(prompt).toContain("notes.txt");
+      expect(prompt).toContain("outside repo cwd");
+    } finally {
+      process.chdir(originalCwd);
+      rmSync(isolatedCwd, { recursive: true, force: true });
+    }
+  });
+
   it("renders classify template from file with validated variables", () => {
     const prompt = renderClassifyPrompt({
       item: {
@@ -71,4 +108,3 @@ describe("prompt-renderer", () => {
     }
   });
 });
-

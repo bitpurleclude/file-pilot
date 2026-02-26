@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 interface FirstRunWizardProps {
   visible: boolean;
   step: 1 | 2 | 3;
@@ -21,57 +23,62 @@ export const FirstRunWizard = ({
   onSkipReadOnly,
   onSaveWhitelist
 }: FirstRunWizardProps): JSX.Element | null => {
+  const { t } = useTranslation();
+
   if (!visible) {
     return null;
   }
 
   return (
     <section className="wizard">
-      <h2>First Run Whitelist Setup ({step} / 3)</h2>
+      <h2>{t("wizard.title", { step })}</h2>
 
       {step === 1 && (
         <>
-          <p>Select allowed directories (split with `;`).</p>
+          <p>{t("wizard.step1Hint")}</p>
           <input
-            placeholder="Example: D:/Workspace;D:/Study"
+            id="wizard-whitelist-input"
+            name="wizardWhitelistInput"
+            placeholder={t("wizard.step1Placeholder")}
             value={whitelistInput}
             onChange={(event) => onWhitelistInputChange(event.target.value)}
           />
           <div className="controls">
-            <button onClick={() => onStepChange(2)}>Next</button>
-            <button onClick={onSkipReadOnly}>Skip (Read-only)</button>
+            <button onClick={() => onStepChange(2)}>{t("wizard.next")}</button>
+            <button onClick={onSkipReadOnly}>{t("wizard.skipReadOnly")}</button>
           </div>
         </>
       )}
 
       {step === 2 && (
         <>
-          <p>Risk notice: operations are limited to whitelisted directories.</p>
+          <p>{t("wizard.step2Notice")}</p>
           <label>
             <input
+              id="wizard-risk-accepted"
+              name="wizardRiskAccepted"
               type="checkbox"
               checked={riskAccepted}
               onChange={(event) => onRiskAcceptedChange(event.target.checked)}
             />
-            I have read and accepted the risk notice.
+            {t("wizard.step2Accept")}
           </label>
           <div className="controls">
-            <button onClick={() => onStepChange(1)}>Back</button>
-            <button onClick={() => onStepChange(3)} disabled={!riskAccepted}>Next</button>
+            <button onClick={() => onStepChange(1)}>{t("wizard.back")}</button>
+            <button onClick={() => onStepChange(3)} disabled={!riskAccepted}>{t("wizard.next")}</button>
           </div>
         </>
       )}
 
       {step === 3 && (
         <>
-          <p>Confirm to save whitelist and enable normal mode.</p>
+          <p>{t("wizard.step3Confirm")}</p>
           <div className="controls">
-            <button onClick={() => onStepChange(2)}>Back</button>
-            <button onClick={onSaveWhitelist}>Confirm</button>
+            <button onClick={() => onStepChange(2)}>{t("wizard.back")}</button>
+            <button onClick={onSaveWhitelist}>{t("wizard.confirm")}</button>
           </div>
         </>
       )}
     </section>
   );
 };
-

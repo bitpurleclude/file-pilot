@@ -1,0 +1,109 @@
+{
+  "app": {
+    "title": "File-Pilot",
+    "dropMessage": "拖放文件以开始工作流",
+    "filesReceived": "文件已接收，准备分析",
+    "ipcNotReady": "IPC 未就绪",
+    "readOnlyActive": "只读模式已启用，请先配置白名单",
+    "analyzeFailed": "分析失败：{{message}}",
+    "analyzeCompletedFollowup": "分析完成，需要追问确认",
+    "analyzeCompleted": "分析完成，已生成预演计划",
+    "followupFailed": "提交追问失败：{{message}}",
+    "followupAppliedPending": "追问已提交，部分项目仍需追问",
+    "followupApplied": "追问已提交",
+    "correctionFailed": "保存修正失败：{{message}}",
+    "correctionSavedRule": "修正已保存并沉淀为规则",
+    "correctionSaved": "修正已保存",
+    "rulesFailed": "获取规则列表失败：{{message}}",
+    "rulesLoaded": "已加载 {{count}} 条规则",
+    "ruleUpdateFailed": "更新规则失败：{{message}}",
+    "whitelistSaved": "白名单已保存",
+    "whitelistFailed": "保存白名单失败：{{message}}",
+    "logsClearFailed": "清除日志失败：{{message}}",
+    "logsCleared": "日志已清除",
+    "readOnlyFailed": "设置只读模式失败：{{message}}",
+    "readOnlyEnabled": "只读模式已启用",
+    "logStatusWarn": "日志大小接近告警阈值",
+    "logStatusOk": "日志大小正常",
+    "readOnlyBlocksDryRun": "只读模式下无法执行预演",
+    "dryRunCompleted": "预演完成",
+    "dryRunFailed": "预演失败：{{message}}",
+    "readOnlyBlocksRollback": "只读模式下无法回滚",
+    "rollbackCompleted": "回滚完成",
+    "rollbackFailed": "回滚失败：{{message}}",
+    "logsExported": "日志已导出：{{path}}",
+    "logsExportFailed": "导出日志失败：{{message}}",
+    "checkUpdatesFailed": "检查更新失败：{{message}}",
+    "updateFound": "发现新版本：{{version}}",
+    "alreadyLatest": "已是最新版本（{{version}}）",
+    "downloadUpdateFailed": "下载更新失败：{{message}}",
+    "updateDownloaded": "更新已下载：v{{version}}",
+    "downloadFirst": "请先下载安装包",
+    "installUpdateFailed": "安装更新失败：{{message}}",
+    "installerLaunched": "安装程序已启动，应用即将退出",
+    "firstRunDetected": "首次运行，请完成白名单配置",
+    "readOnlyLater": "只读模式已启用，稍后配置白名单"
+  },
+  "dropzone": {
+    "hint": "拖放文件到此处"
+  },
+  "whitelist": {
+    "placeholder": "白名单目录，使用 ';' 分隔",
+    "save": "保存白名单",
+    "inputFirst": "请先输入白名单目录，使用 ';' 分隔"
+  },
+  "actions": {
+    "analyze": "分析并规划",
+    "dryRun": "预演",
+    "rollback": "回滚",
+    "newSession": "新建会话"
+  },
+  "wizard": {
+    "title": "首次运行 - 白名单配置（{{step}} / 3）",
+    "step1Hint": "选择允许操作的目录（使用 ';' 分隔）。",
+    "step1Placeholder": "示例：D:/Workspace;D:/Study",
+    "next": "下一步",
+    "back": "上一步",
+    "skipReadOnly": "跳过（只读模式）",
+    "step2Notice": "风险提示：所有操作仅限于白名单目录内执行。",
+    "step2Accept": "我已阅读并接受风险提示。",
+    "step3Confirm": "确认保存白名单并启用正常模式。",
+    "confirm": "确认"
+  },
+  "feedback": {
+    "followupPlaceholder": "对低置信度项目的追问回答",
+    "submitFollowup": "提交追问",
+    "purpose": "用途",
+    "correctionProjectPlaceholder": "修正后的项目名",
+    "saveAsRule": "保存为规则",
+    "saveCorrection": "保存修正"
+  },
+  "rules": {
+    "refresh": "刷新规则",
+    "enable": "启用",
+    "disable": "禁用"
+  },
+  "updates": {
+    "channelLabel": "更新通道",
+    "beta": "测试版",
+    "stable": "稳定版",
+    "check": "检查更新",
+    "download": "下载更新",
+    "install": "安装更新"
+  },
+  "logs": {
+    "anonymize": "匿名化日志",
+    "export": "导出日志",
+    "refreshStatus": "刷新日志状态",
+    "clear": "清除日志",
+    "sizeBytes": "日志大小：{{size}} 字节",
+    "warn": "（告警）",
+    "ok": "（正常）"
+  },
+  "status": {
+    "readOnly": "当前模式：只读",
+    "latestVersion": "最新版本：{{version}}",
+    "notDownloaded": "（未下载）",
+    "downloaded": "（已下载）"
+  }
+}

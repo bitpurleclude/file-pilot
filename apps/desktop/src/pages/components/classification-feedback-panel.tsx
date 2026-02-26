@@ -1,3 +1,5 @@
+import { useTranslation } from "react-i18next";
+
 import type { Purpose } from "../../../shared/types/workflow.js";
 import type { AnalyzeData } from "../types.js";
 
@@ -32,6 +34,8 @@ export const ClassificationFeedbackPanel = ({
   onSaveAsRuleChange,
   onSaveCorrection
 }: ClassificationFeedbackPanelProps): JSX.Element | null => {
+  const { t } = useTranslation();
+
   if (analyzeData === null) {
     return null;
   }
@@ -41,19 +45,23 @@ export const ClassificationFeedbackPanel = ({
       {analyzeData.needsFollowUp && (
         <section className="controls">
           <input
+            id="followup-answer"
+            name="followupAnswer"
             value={followupAnswer}
             onChange={(event) => onFollowupAnswerChange(event.target.value)}
-            placeholder="Follow-up answer for low confidence items"
+            placeholder={t("feedback.followupPlaceholder")}
           />
-          <button onClick={onSubmitFollowup}>Submit Follow-up</button>
+          <button onClick={onSubmitFollowup}>{t("feedback.submitFollowup")}</button>
         </section>
       )}
 
       {firstItemId !== undefined && (
         <section className="controls">
           <label>
-            Purpose
+            {t("feedback.purpose")}
             <select
+              id="correction-purpose"
+              name="correctionPurpose"
               value={correctionPurpose}
               onChange={(event) => onCorrectionPurposeChange(event.target.value as Purpose)}
             >
@@ -63,22 +71,25 @@ export const ClassificationFeedbackPanel = ({
             </select>
           </label>
           <input
+            id="correction-project"
+            name="correctionProject"
             value={correctionProject}
             onChange={(event) => onCorrectionProjectChange(event.target.value)}
-            placeholder="Corrected project"
+            placeholder={t("feedback.correctionProjectPlaceholder")}
           />
           <label>
             <input
+              id="save-as-rule"
+              name="saveAsRule"
               type="checkbox"
               checked={saveAsRule}
               onChange={(event) => onSaveAsRuleChange(event.target.checked)}
             />
-            Save as rule
+            {t("feedback.saveAsRule")}
           </label>
-          <button onClick={onSaveCorrection}>Save Correction</button>
+          <button onClick={onSaveCorrection}>{t("feedback.saveCorrection")}</button>
         </section>
       )}
     </>
   );
 };
-

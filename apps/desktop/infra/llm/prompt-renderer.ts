@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import nunjucks from "nunjucks";
@@ -24,17 +24,48 @@ const env = nunjucks.configure({
   throwOnUndefined: true
 });
 
-const templatePath = (): string => {
-  return join(process.cwd(), "apps", "desktop", "infra", "llm", "templates", "classify.v1.njk");
+const classifyTemplateName = "classify.v1.njk";
+
+const templatePaths = (): string[] => {
+  return [
+    join(__dirname, "templates", classifyTemplateName),
+    join(process.cwd(), "dist", "electron", "templates", classifyTemplateName),
+    join(process.cwd(), "apps", "desktop", "infra", "llm", "templates", classifyTemplateName)
+  ];
 };
 
+let cachedClassifyTemplate: string | null = null;
+
 const loadClassifyTemplate = (): string => {
+  if (cachedClassifyTemplate !== null) {
+    return cachedClassifyTemplate;
+  }
+
+  const checkedPaths: string[] = [];
+
+  for (const path of templatePaths()) {
+    checkedPaths.push(path);
+    if (!existsSync(path)) {
+      continue;
+    }
+
+    try {
+      cachedClassifyTemplate = readFileSync(path, "utf-8");
+      return cachedClassifyTemplate;
+    } catch (error) {
+      throw new AppError("SYSTEM_PROMPT_TEMPLATE_MISSING", "classify template file not found", "SYSTEM", {
+        cause: error instanceof Error ? error.message : String(error),
+        checkedPaths
+      });
+    }
+  }
+
   try {
-    return readFileSync(templatePath(), "utf-8");
+    throw new Error("no template file found");
   } catch (error) {
     throw new AppError("SYSTEM_PROMPT_TEMPLATE_MISSING", "classify template file not found", "SYSTEM", {
       cause: error instanceof Error ? error.message : String(error),
-      path: templatePath()
+      checkedPaths
     });
   }
 };
@@ -66,4 +97,3 @@ export const renderClassifyPrompt = (input: { item: FileItem; summary: ContentSu
     });
   }
 };
-

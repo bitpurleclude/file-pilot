@@ -4,6 +4,7 @@ import type { AppSettings } from "../../shared/types/settings.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 
 export const defaultSettings: AppSettings = {
+  language: "zh-CN",
   whitelistDirectories: [],
   readOnlyMode: false,
   classification: {

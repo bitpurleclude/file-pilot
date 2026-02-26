@@ -1,4 +1,5 @@
 export interface AppSettings {
+  language: "zh-CN" | "en";
   whitelistDirectories: string[];
   readOnlyMode: boolean;
   classification: {

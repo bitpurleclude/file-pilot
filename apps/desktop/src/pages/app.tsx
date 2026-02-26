@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { ClassificationRule } from "../../shared/types/rules.js";
 import type { Purpose } from "../../shared/types/workflow.js";
+import { mergeAnalyzeData } from "./analyze-state.js";
 import { ClassificationFeedbackPanel } from "./components/classification-feedback-panel.js";
 import { FirstRunWizard } from "./components/first-run-wizard.js";
 import { RuleManagementPanel } from "./components/rule-management-panel.js";
-import type { AnalyzeData } from "./types.js";
+import type { AnalyzeData, SaveCorrectionsData, SubmitFollowupData } from "./types.js";
 
 const genSessionId = (): string => crypto.randomUUID();
 
@@ -32,9 +34,10 @@ const purposeOptions: Purpose[] = [
 ];
 
 export const App = (): JSX.Element => {
+  const { t, i18n } = useTranslation();
   const [sessionId, setSessionId] = useState<string>(genSessionId());
   const [filePaths, setFilePaths] = useState<string[]>([]);
-  const [message, setMessage] = useState<string>("Drop files to start M2/M3 workflow");
+  const [message, setMessage] = useState<string>("");
   const [anonymize, setAnonymize] = useState<boolean>(true);
   const [whitelistInput, setWhitelistInput] = useState<string>("");
   const [wizardVisible, setWizardVisible] = useState<boolean>(false);
@@ -56,6 +59,10 @@ export const App = (): JSX.Element => {
   const firstItemId = analyzeData?.items[0]?.item.id;
 
   useEffect(() => {
+    setMessage(t("app.dropMessage"));
+  }, [t]);
+
+  useEffect(() => {
     const bootstrap = async (): Promise<void> => {
       if (window.filePilotApi === undefined) {
         return;
@@ -64,12 +71,17 @@ export const App = (): JSX.Element => {
       const settingsResult = await window.filePilotApi.getSettings();
       if (settingsResult.ok) {
         setReadOnlyMode(settingsResult.data.readOnlyMode);
+
+        if (settingsResult.data.language !== undefined) {
+          void i18n.changeLanguage(settingsResult.data.language);
+        }
+
         if (settingsResult.data.whitelistDirectories.length === 0) {
           if (!settingsResult.data.readOnlyMode) {
             setWizardVisible(true);
-            setMessage("First run detected, complete whitelist setup");
+            setMessage(t("app.firstRunDetected"));
           } else {
-            setMessage("Read-only mode enabled, configure whitelist later");
+            setMessage(t("app.readOnlyLater"));
           }
         } else {
           setWhitelistInput(settingsResult.data.whitelistDirectories.join(";"));
@@ -83,34 +95,34 @@ export const App = (): JSX.Element => {
     };
 
     void bootstrap();
-  }, []);
+  }, [i18n, t]);
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
     setFilePaths(parseDroppedFiles(event));
-    setMessage("Files received, ready to analyze");
+    setMessage(t("app.filesReceived"));
   };
 
   const onAnalyze = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC not ready");
+      setMessage(t("app.ipcNotReady"));
       return;
     }
 
     if (readOnlyMode) {
-      setMessage("Read-only mode is active, configure whitelist first");
+      setMessage(t("app.readOnlyActive"));
       return;
     }
 
     const result = await window.filePilotApi.analyze({ sessionId, filePaths });
     if (!result.ok) {
-      setMessage(`Analyze failed: ${result.error.message}`);
+      setMessage(t("app.analyzeFailed", { message: result.error.message }));
       return;
     }
 
-    const data = result.data as AnalyzeData;
-    setAnalyzeData(data);
-    setMessage(data.needsFollowUp ? "Analyze completed, follow-up is required" : "Analyze completed with dry-run plan");
+    setAnalyzeData(result.data);
+    const data = result.data;
+    setMessage(data.needsFollowUp ? t("app.analyzeCompletedFollowup") : t("app.analyzeCompleted"));
   };
 
   const onSubmitFollowup = async (): Promise<void> => {
@@ -125,11 +137,13 @@ export const App = (): JSX.Element => {
     });
 
     if (!result.ok) {
-      setMessage(`Submit follow-up failed: ${result.error.message}`);
+      setMessage(t("app.followupFailed", { message: result.error.message }));
       return;
     }
 
-    setMessage("Follow-up answers applied");
+    const data = result.data as SubmitFollowupData;
+    setAnalyzeData((current) => mergeAnalyzeData(current, data));
+    setMessage(data.needsFollowUp ? t("app.followupAppliedPending") : t("app.followupApplied"));
   };
 
   const onSaveCorrection = async (): Promise<void> => {
@@ -146,11 +160,25 @@ export const App = (): JSX.Element => {
     });
 
     if (!result.ok) {
-      setMessage(`Save correction failed: ${result.error.message}`);
+      setMessage(t("app.correctionFailed", { message: result.error.message }));
       return;
     }
 
-    setMessage(saveAsRule ? "Correction saved and promoted to rule" : "Correction saved");
+    const data = result.data as SaveCorrectionsData;
+    setAnalyzeData((current) => mergeAnalyzeData(current, data));
+    if (data.rule !== undefined) {
+      const createdRule = data.rule;
+      setRules((current) => {
+        const existingIndex = current.findIndex((item) => item.id === createdRule.id);
+        if (existingIndex === -1) {
+          return [createdRule, ...current];
+        }
+
+        return current.map((item, index) => (index === existingIndex ? createdRule : item));
+      });
+    }
+
+    setMessage(saveAsRule ? t("app.correctionSavedRule") : t("app.correctionSaved"));
   };
 
   const onListRules = async (): Promise<void> => {
@@ -160,12 +188,12 @@ export const App = (): JSX.Element => {
 
     const result = await window.filePilotApi.listRules({ includeDisabled: true });
     if (!result.ok) {
-      setMessage(`List rules failed: ${result.error.message}`);
+      setMessage(t("app.rulesFailed", { message: result.error.message }));
       return;
     }
 
     setRules(result.data);
-    setMessage(`Loaded ${result.data.length} rules`);
+    setMessage(t("app.rulesLoaded", { count: result.data.length }));
   };
 
   const onToggleRule = async (rule: ClassificationRule): Promise<void> => {
@@ -179,7 +207,7 @@ export const App = (): JSX.Element => {
     });
 
     if (!result.ok) {
-      setMessage(`Update rule failed: ${result.error.message}`);
+      setMessage(t("app.ruleUpdateFailed", { message: result.error.message }));
       return;
     }
 
@@ -188,7 +216,7 @@ export const App = (): JSX.Element => {
 
   const onSaveWhitelist = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC not ready");
+      setMessage(t("app.ipcNotReady"));
       return;
     }
 
@@ -198,7 +226,7 @@ export const App = (): JSX.Element => {
       .filter((item) => item.length > 0);
 
     if (directories.length === 0) {
-      setMessage("Input whitelist directories first, use ';' to split");
+      setMessage(t("whitelist.inputFirst"));
       return;
     }
 
@@ -206,11 +234,11 @@ export const App = (): JSX.Element => {
     if (result.ok) {
       setReadOnlyMode(false);
       setWizardVisible(false);
-      setMessage("Whitelist saved");
+      setMessage(t("app.whitelistSaved"));
       return;
     }
 
-    setMessage(`Save whitelist failed: ${result.error.message}`);
+    setMessage(t("app.whitelistFailed", { message: result.error.message }));
   };
 
   const onClearLogs = async (): Promise<void> => {
@@ -220,7 +248,7 @@ export const App = (): JSX.Element => {
 
     const result = await window.filePilotApi.clearLogs();
     if (!result.ok) {
-      setMessage(`Clear logs failed: ${result.error.message}`);
+      setMessage(t("app.logsClearFailed", { message: result.error.message }));
       return;
     }
 
@@ -229,24 +257,24 @@ export const App = (): JSX.Element => {
       setLogStatus(status.data);
     }
 
-    setMessage("Logs cleared");
+    setMessage(t("app.logsCleared"));
   };
 
   const onEnableReadOnlyMode = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC not ready");
+      setMessage(t("app.ipcNotReady"));
       return;
     }
 
     const result = await window.filePilotApi.setReadOnlyMode({ enabled: true });
     if (!result.ok) {
-      setMessage(`Set read-only failed: ${result.error.message}`);
+      setMessage(t("app.readOnlyFailed", { message: result.error.message }));
       return;
     }
 
     setReadOnlyMode(true);
     setWizardVisible(false);
-    setMessage("Read-only mode enabled");
+    setMessage(t("app.readOnlyEnabled"));
   };
 
   const onRefreshLogStatus = async (): Promise<void> => {
@@ -257,7 +285,7 @@ export const App = (): JSX.Element => {
     const status = await window.filePilotApi.getLogStatus();
     if (status.ok) {
       setLogStatus(status.data);
-      setMessage(status.data.warn ? "Log size is close to warning threshold" : "Log size is healthy");
+      setMessage(status.data.warn ? t("app.logStatusWarn") : t("app.logStatusOk"));
     }
   };
 
@@ -267,12 +295,12 @@ export const App = (): JSX.Element => {
     }
 
     if (readOnlyMode) {
-      setMessage("Read-only mode blocks dry-run execution");
+      setMessage(t("app.readOnlyBlocksDryRun"));
       return;
     }
 
     const result = await window.filePilotApi.apply({ sessionId, action: "move", dryRun: true });
-    setMessage(result.ok ? "Dry-run completed" : `Dry-run failed: ${result.error.message}`);
+    setMessage(result.ok ? t("app.dryRunCompleted") : t("app.dryRunFailed", { message: result.error.message }));
   };
 
   const onRollback = async (): Promise<void> => {
@@ -281,12 +309,12 @@ export const App = (): JSX.Element => {
     }
 
     if (readOnlyMode) {
-      setMessage("Read-only mode blocks rollback");
+      setMessage(t("app.readOnlyBlocksRollback"));
       return;
     }
 
     const result = await window.filePilotApi.rollback({ sessionId });
-    setMessage(result.ok ? "Rollback completed" : `Rollback failed: ${result.error.message}`);
+    setMessage(result.ok ? t("app.rollbackCompleted") : t("app.rollbackFailed", { message: result.error.message }));
   };
 
   const onExportLogs = async (): Promise<void> => {
@@ -295,18 +323,18 @@ export const App = (): JSX.Element => {
     }
 
     const result = await window.filePilotApi.exportLogs({ anonymize });
-    setMessage(result.ok ? `Logs exported: ${result.data.path}` : `Export logs failed: ${result.error.message}`);
+    setMessage(result.ok ? t("app.logsExported", { path: result.data.path }) : t("app.logsExportFailed", { message: result.error.message }));
   };
 
   const onCheckUpdates = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC not ready");
+      setMessage(t("app.ipcNotReady"));
       return;
     }
 
     const result = await window.filePilotApi.checkUpdates({ channel: updateChannel });
     if (!result.ok) {
-      setMessage(`Check updates failed: ${result.error.message}`);
+      setMessage(t("app.checkUpdatesFailed", { message: result.error.message }));
       return;
     }
 
@@ -314,51 +342,51 @@ export const App = (): JSX.Element => {
     setDownloadedInstallerPath(null);
     setMessage(
       result.data.available
-        ? `Update found: ${result.data.latestVersion ?? "unknown"}`
-        : `Already latest version (${result.data.currentVersion})`
+        ? t("app.updateFound", { version: result.data.latestVersion ?? "unknown" })
+        : t("app.alreadyLatest", { version: result.data.currentVersion })
     );
   };
 
   const onDownloadUpdate = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC not ready");
+      setMessage(t("app.ipcNotReady"));
       return;
     }
 
     const result = await window.filePilotApi.downloadUpdate({ channel: updateChannel });
     if (!result.ok) {
-      setMessage(`Download update failed: ${result.error.message}`);
+      setMessage(t("app.downloadUpdateFailed", { message: result.error.message }));
       return;
     }
 
     setDownloadedInstallerPath(result.data.installerPath);
     setLatestVersion(result.data.version);
-    setMessage(`Update downloaded: v${result.data.version}`);
+    setMessage(t("app.updateDownloaded", { version: result.data.version }));
   };
 
   const onInstallUpdate = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
-      setMessage("IPC not ready");
+      setMessage(t("app.ipcNotReady"));
       return;
     }
 
     if (downloadedInstallerPath === null) {
-      setMessage("Download installer first");
+      setMessage(t("app.downloadFirst"));
       return;
     }
 
     const result = await window.filePilotApi.installUpdate({ installerPath: downloadedInstallerPath });
     if (!result.ok) {
-      setMessage(`Install update failed: ${result.error.message}`);
+      setMessage(t("app.installUpdateFailed", { message: result.error.message }));
       return;
     }
 
-    setMessage("Installer launched, app will exit");
+    setMessage(t("app.installerLaunched"));
   };
 
   return (
     <main className="container">
-      <h1>File-Pilot M2/M3</h1>
+      <h1>{t("app.title")}</h1>
       <p>{message}</p>
 
       <FirstRunWizard
@@ -378,27 +406,29 @@ export const App = (): JSX.Element => {
         onDragOver={(event) => event.preventDefault()}
         onDrop={onDrop}
       >
-        Drop files here
+        {t("dropzone.hint")}
       </section>
 
       <div className="controls">
         <input
-          placeholder="Whitelist directories, split with ';'"
+          id="whitelist-directories"
+          name="whitelistDirectories"
+          placeholder={t("whitelist.placeholder")}
           value={whitelistInput}
           onChange={(event) => setWhitelistInput(event.target.value)}
         />
-        <button onClick={onSaveWhitelist}>Save Whitelist</button>
+        <button onClick={onSaveWhitelist}>{t("whitelist.save")}</button>
       </div>
 
       <div className="controls">
         <button onClick={onAnalyze} disabled={!canAnalyze}>
-          Analyze and Plan
+          {t("actions.analyze")}
         </button>
         <button onClick={onApplyDryRun} disabled={readOnlyMode}>
-          Dry-run
+          {t("actions.dryRun")}
         </button>
         <button onClick={onRollback} disabled={readOnlyMode}>
-          Rollback
+          {t("actions.rollback")}
         </button>
       </div>
 
@@ -426,41 +456,48 @@ export const App = (): JSX.Element => {
 
       <div className="controls">
         <label>
-          Update Channel
-          <select value={updateChannel} onChange={(event) => setUpdateChannel(event.target.value as "beta" | "stable")}>
-            <option value="beta">beta</option>
-            <option value="stable">stable</option>
+          {t("updates.channelLabel")}
+          <select
+            id="update-channel"
+            name="updateChannel"
+            value={updateChannel}
+            onChange={(event) => setUpdateChannel(event.target.value as "beta" | "stable")}
+          >
+            <option value="beta">{t("updates.beta")}</option>
+            <option value="stable">{t("updates.stable")}</option>
           </select>
         </label>
         <label>
           <input
+            id="anonymize-logs"
+            name="anonymizeLogs"
             type="checkbox"
             checked={anonymize}
             onChange={(event) => setAnonymize(event.target.checked)}
           />
-          Anonymize logs
+          {t("logs.anonymize")}
         </label>
-        <button onClick={onExportLogs}>Export Logs</button>
-        <button onClick={onRefreshLogStatus}>Refresh Log Status</button>
-        <button onClick={onClearLogs}>Clear Logs</button>
-        <button onClick={onCheckUpdates}>Check Updates</button>
-        <button onClick={onDownloadUpdate}>Download Update</button>
-        <button onClick={onInstallUpdate} disabled={downloadedInstallerPath === null}>Install Update</button>
-        <button onClick={() => setSessionId(genSessionId())}>New Session</button>
+        <button onClick={onExportLogs}>{t("logs.export")}</button>
+        <button onClick={onRefreshLogStatus}>{t("logs.refreshStatus")}</button>
+        <button onClick={onClearLogs}>{t("logs.clear")}</button>
+        <button onClick={onCheckUpdates}>{t("updates.check")}</button>
+        <button onClick={onDownloadUpdate}>{t("updates.download")}</button>
+        <button onClick={onInstallUpdate} disabled={downloadedInstallerPath === null}>{t("updates.install")}</button>
+        <button onClick={() => setSessionId(genSessionId())}>{t("actions.newSession")}</button>
       </div>
 
       {logStatus !== null && (
         <p>
-          Log Size: {logStatus.sizeBytes} bytes {logStatus.warn ? "(warn)" : "(ok)"}
+          {t("logs.sizeBytes", { size: logStatus.sizeBytes })} {logStatus.warn ? t("logs.warn") : t("logs.ok")}
         </p>
       )}
 
-      {readOnlyMode && <p>Current Mode: Read-only</p>}
+      {readOnlyMode && <p>{t("status.readOnly")}</p>}
 
       {latestVersion !== null && (
         <p>
-          Latest Version: {latestVersion}
-          {downloadedInstallerPath === null ? " (not downloaded)" : " (downloaded)"}
+          {t("status.latestVersion", { version: latestVersion })}
+          {downloadedInstallerPath === null ? ` ${t("status.notDownloaded")}` : ` ${t("status.downloaded")}`}
         </p>
       )}
 
@@ -468,4 +505,3 @@ export const App = (): JSX.Element => {
     </main>
   );
 };
-

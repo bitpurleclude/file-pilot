@@ -1,6 +1,8 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 
+ import "./i18n.js";
+
 import { App } from "./pages/app.js";
 import "./styles.css";
 

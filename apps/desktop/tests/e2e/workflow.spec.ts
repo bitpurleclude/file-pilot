@@ -55,6 +55,8 @@ test("whitelist + analyze + followup + dry-run workflow", async () => {
     expect(result).toHaveProperty("analyze.ok", true);
     expect(result).toHaveProperty("followup.ok", true);
     expect(result).toHaveProperty("correction.ok", true);
+    expect(result).toHaveProperty("followup.data.items.0.decisionSource", "followup");
+    expect(result).toHaveProperty("correction.data.items.0.decisionSource", "manual-correction");
     expect(result).toHaveProperty("dryRun.ok", true);
     expect(result).toHaveProperty("rules.ok", true);
     expect(result).toHaveProperty("exportLogs.ok", true);

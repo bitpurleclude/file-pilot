@@ -2,10 +2,36 @@ import type { IpcResult } from "../../shared/errors/app-error.js";
 import type { ClassificationRule, RuleUpdatePayload } from "../../shared/types/rules.js";
 import type { AppSettings } from "../../shared/types/settings.js";
 import type { DownloadedUpdateInfo, UpdateInfo } from "../../shared/types/updater.js";
-import type { Purpose } from "../../shared/types/workflow.js";
+import type { FollowUpQuestion, ProcessedSessionItem, Purpose } from "../../shared/types/workflow.js";
+
+interface AnalyzeResponseData {
+  sessionId: string;
+  items: ProcessedSessionItem[];
+  classifications: ProcessedSessionItem["classification"][];
+  plans: ProcessedSessionItem["plan"][];
+  needsFollowUp: boolean;
+  followUpQuestions: FollowUpQuestion[];
+}
+
+interface SubmitFollowupResponseData {
+  sessionId: string;
+  updatedCount: number;
+  items: ProcessedSessionItem[];
+  needsFollowUp: boolean;
+  followUpQuestions: FollowUpQuestion[];
+}
+
+interface SaveCorrectionsResponseData {
+  sessionId: string;
+  updatedCount: number;
+  items: ProcessedSessionItem[];
+  needsFollowUp: boolean;
+  followUpQuestions: FollowUpQuestion[];
+  rule?: ClassificationRule;
+}
 
 export interface FilePilotApi {
-  analyze(payload: { sessionId: string; filePaths: string[] }): Promise<IpcResult<unknown>>;
+  analyze(payload: { sessionId: string; filePaths: string[] }): Promise<IpcResult<AnalyzeResponseData>>;
   apply(payload: { sessionId: string; action: "move" | "copy"; dryRun: boolean }): Promise<IpcResult<unknown>>;
   rollback(payload: { sessionId: string }): Promise<IpcResult<unknown>>;
   exportLogs(payload: { anonymize: boolean }): Promise<IpcResult<{ path: string }>>;
@@ -18,7 +44,11 @@ export interface FilePilotApi {
   getSettings(): Promise<IpcResult<AppSettings>>;
   getLogStatus(): Promise<IpcResult<{ sizeBytes: number; warn: boolean }>>;
   clearLogs(): Promise<IpcResult<{ cleared: boolean }>>;
-  submitFollowup(payload: { sessionId: string; answer: string; applyToAll?: boolean }): Promise<IpcResult<unknown>>;
+  submitFollowup(payload: {
+    sessionId: string;
+    answer: string;
+    applyToAll?: boolean;
+  }): Promise<IpcResult<SubmitFollowupResponseData>>;
   saveCorrections(payload: {
     sessionId: string;
     fileId: string;
@@ -26,7 +56,7 @@ export interface FilePilotApi {
     project: string;
     saveAsRule?: boolean;
     applyToAll?: boolean;
-  }): Promise<IpcResult<unknown>>;
+  }): Promise<IpcResult<SaveCorrectionsResponseData>>;
   listRules(payload?: { includeDisabled?: boolean }): Promise<IpcResult<ClassificationRule[]>>;
   updateRule(payload: RuleUpdatePayload): Promise<IpcResult<ClassificationRule>>;
 }

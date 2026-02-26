@@ -40,6 +40,17 @@ import {
   traceId
 } from "./shared.js";
 
+const toFollowUpQuestions = (
+  items: ProcessedSessionItem[]
+): Array<{ fileId: string; question: string }> => {
+  return items
+    .filter((item) => item.needsFollowUp)
+    .map((item) => ({
+      fileId: item.item.id,
+      question: item.followUpQuestion ?? `请补充“${item.item.name}”所属项目`
+    }));
+};
+
 export const sessionHandlers = {
   analyze: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
     const t = traceId();
@@ -317,7 +328,8 @@ export const sessionHandlers = {
           sessionId: req.sessionId,
           updatedCount,
           items: nextItems,
-          needsFollowUp: nextItems.some((item) => item.needsFollowUp)
+          needsFollowUp: nextItems.some((item) => item.needsFollowUp),
+          followUpQuestions: toFollowUpQuestions(nextItems)
         }
       };
     } catch (error) {
@@ -447,6 +459,9 @@ export const sessionHandlers = {
         data: {
           sessionId: req.sessionId,
           updatedCount,
+          items: nextItems,
+          needsFollowUp: nextItems.some((item) => item.needsFollowUp),
+          followUpQuestions: toFollowUpQuestions(nextItems),
           ...(savedRule === null ? {} : { rule: savedRule })
         }
       };

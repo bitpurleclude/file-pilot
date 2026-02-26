@@ -16,6 +16,7 @@ afterEach(async () => {
 });
 
 const settings: AppSettings = {
+  language: "en",
   whitelistDirectories: [],
   readOnlyMode: false,
   classification: {

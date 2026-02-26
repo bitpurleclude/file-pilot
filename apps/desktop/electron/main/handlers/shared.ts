@@ -94,6 +94,10 @@ export const toDecisionRecords = (sessionId: string, items: ProcessedSessionItem
 export const markRuleHits = (dbPath: string, items: ProcessedSessionItem[]): void => {
   const db = openSqliteDatabase(dbPath);
   for (const item of items) {
+    if (item.decisionSource !== "rule") {
+      continue;
+    }
+
     const matchedRule = item.classification.reasons.find((reason) => reason.startsWith("matched-rule:"));
     if (matchedRule === undefined) {
       continue;
@@ -132,4 +136,3 @@ export const buildRuleFromItem = (
     updatedAt: now
   };
 };
-

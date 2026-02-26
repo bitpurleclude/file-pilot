@@ -4,16 +4,22 @@ import { fileURLToPath } from "node:url";
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(scriptDir);
-const sourceDir = join(repoRoot, "apps", "desktop", "infra", "storage", "sqlite", "migrations");
-const outputDir = join(repoRoot, "dist", "electron", "migrations");
+const sqliteMigrationsSourceDir = join(repoRoot, "apps", "desktop", "infra", "storage", "sqlite", "migrations");
+const sqliteMigrationsOutputDir = join(repoRoot, "dist", "electron", "migrations");
+const llmTemplateSourceDir = join(repoRoot, "apps", "desktop", "infra", "llm", "templates");
+const llmTemplateOutputDir = join(repoRoot, "dist", "electron", "templates");
 
-mkdirSync(outputDir, { recursive: true });
+const copyFilesByExtension = (inputDir, outputDir, extension) => {
+  mkdirSync(outputDir, { recursive: true });
 
-for (const file of readdirSync(sourceDir)) {
-  if (extname(file) !== ".sql") {
-    continue;
+  for (const file of readdirSync(inputDir)) {
+    if (extname(file) !== extension) {
+      continue;
+    }
+
+    copyFileSync(join(inputDir, file), join(outputDir, file));
   }
+};
 
-  copyFileSync(join(sourceDir, file), join(outputDir, file));
-}
-
+copyFilesByExtension(sqliteMigrationsSourceDir, sqliteMigrationsOutputDir, ".sql");
+copyFilesByExtension(llmTemplateSourceDir, llmTemplateOutputDir, ".njk");

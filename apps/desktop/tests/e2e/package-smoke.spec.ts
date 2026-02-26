@@ -1,5 +1,6 @@
-import { access } from "node:fs/promises";
+import { access, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { constants } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
@@ -42,24 +43,53 @@ test("packaged win-unpacked app starts and preload API is available", async () =
   }
   await expect(access(executablePath, constants.R_OK)).resolves.toBeUndefined();
 
-  const app = await launchElectronApp({ executablePath });
+  const launchCwd = await mkdtemp(join(tmpdir(), "file-pilot-packaged-cwd-"));
+  const sandbox = await mkdtemp(join(tmpdir(), "file-pilot-packaged-sandbox-"));
+  const sample = join(sandbox, "sample.md");
+  await writeFile(sample, "# packaged analyze smoke", "utf-8");
+
+  const app = await launchElectronApp({ executablePath, cwd: launchCwd });
   try {
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
 
     await expect(page.getByRole("heading", { name: "File-Pilot M2/M3" })).toBeVisible();
 
-    const apiReady = await page.evaluate(async () => {
+    const apiReady = await page.evaluate(async ({ sandboxDir, samplePath }) => {
       if (window.filePilotApi === undefined) {
-        return false;
+        return { ok: false, reason: "api-missing" };
       }
 
       const settingsResult = await window.filePilotApi.getSettings();
-      return settingsResult.ok;
-    });
+      if (!settingsResult.ok) {
+        return { ok: false, reason: "settings-failed" };
+      }
 
-    expect(apiReady).toBe(true);
+      const whitelistResult = await window.filePilotApi.saveWhitelist({ directories: [sandboxDir] });
+      if (!whitelistResult.ok) {
+        return { ok: false, reason: "whitelist-failed", details: whitelistResult.error };
+      }
+
+      const analyzeResult = await window.filePilotApi.analyze({
+        sessionId: crypto.randomUUID(),
+        filePaths: [samplePath]
+      });
+      if (!analyzeResult.ok) {
+        return { ok: false, reason: "analyze-failed", details: analyzeResult.error };
+      }
+
+      const data = analyzeResult.data as { items?: unknown[] };
+      return {
+        ok: true,
+        itemCount: Array.isArray(data.items) ? data.items.length : 0
+      };
+    }, { sandboxDir: sandbox, samplePath: sample });
+
+    expect(apiReady).toHaveProperty("ok", true);
+    expect(apiReady).toHaveProperty("itemCount", 1);
   } finally {
     await app.close();
+    await rm(launchCwd, { recursive: true, force: true });
+    await rm(sandbox, { recursive: true, force: true });
   }
 });

@@ -3,6 +3,7 @@ import { _electron as electron } from "@playwright/test";
 interface LaunchElectronAppOptions {
   executablePath?: string;
   args?: string[];
+  cwd?: string;
 }
 
 export const launchElectronApp = async (options: LaunchElectronAppOptions = {}) => {
@@ -19,12 +20,14 @@ export const launchElectronApp = async (options: LaunchElectronAppOptions = {}) 
     options.executablePath === undefined
       ? {
           args: options.args ?? ["dist/electron/main.cjs"],
-          env
+          env,
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd })
         }
       : {
           executablePath: options.executablePath,
           args: options.args ?? [],
-          env
+          env,
+          ...(options.cwd === undefined ? {} : { cwd: options.cwd })
         }
   );
 };

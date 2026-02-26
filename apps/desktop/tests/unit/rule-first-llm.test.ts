@@ -6,6 +6,7 @@ import type { AppSettings } from "../../shared/types/settings.js";
 const originalFetch = globalThis.fetch;
 
 const createSettings = (): AppSettings => ({
+  language: "en",
   whitelistDirectories: [],
   readOnlyMode: false,
   classification: {

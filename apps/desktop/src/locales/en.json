@@ -1,0 +1,109 @@
+{
+  "app": {
+    "title": "File-Pilot",
+    "dropMessage": "Drop files to start workflow",
+    "filesReceived": "Files received, ready to analyze",
+    "ipcNotReady": "IPC not ready",
+    "readOnlyActive": "Read-only mode is active, configure whitelist first",
+    "analyzeFailed": "Analyze failed: {{message}}",
+    "analyzeCompletedFollowup": "Analyze completed, follow-up is required",
+    "analyzeCompleted": "Analyze completed with dry-run plan",
+    "followupFailed": "Submit follow-up failed: {{message}}",
+    "followupAppliedPending": "Follow-up answers applied, some items still need follow-up",
+    "followupApplied": "Follow-up answers applied",
+    "correctionFailed": "Save correction failed: {{message}}",
+    "correctionSavedRule": "Correction saved and promoted to rule",
+    "correctionSaved": "Correction saved",
+    "rulesFailed": "List rules failed: {{message}}",
+    "rulesLoaded": "Loaded {{count}} rules",
+    "ruleUpdateFailed": "Update rule failed: {{message}}",
+    "whitelistSaved": "Whitelist saved",
+    "whitelistFailed": "Save whitelist failed: {{message}}",
+    "logsClearFailed": "Clear logs failed: {{message}}",
+    "logsCleared": "Logs cleared",
+    "readOnlyFailed": "Set read-only failed: {{message}}",
+    "readOnlyEnabled": "Read-only mode enabled",
+    "logStatusWarn": "Log size is close to warning threshold",
+    "logStatusOk": "Log size is healthy",
+    "readOnlyBlocksDryRun": "Read-only mode blocks dry-run execution",
+    "dryRunCompleted": "Dry-run completed",
+    "dryRunFailed": "Dry-run failed: {{message}}",
+    "readOnlyBlocksRollback": "Read-only mode blocks rollback",
+    "rollbackCompleted": "Rollback completed",
+    "rollbackFailed": "Rollback failed: {{message}}",
+    "logsExported": "Logs exported: {{path}}",
+    "logsExportFailed": "Export logs failed: {{message}}",
+    "checkUpdatesFailed": "Check updates failed: {{message}}",
+    "updateFound": "Update found: {{version}}",
+    "alreadyLatest": "Already latest version ({{version}})",
+    "downloadUpdateFailed": "Download update failed: {{message}}",
+    "updateDownloaded": "Update downloaded: v{{version}}",
+    "downloadFirst": "Download installer first",
+    "installUpdateFailed": "Install update failed: {{message}}",
+    "installerLaunched": "Installer launched, app will exit",
+    "firstRunDetected": "First run detected, complete whitelist setup",
+    "readOnlyLater": "Read-only mode enabled, configure whitelist later"
+  },
+  "dropzone": {
+    "hint": "Drop files here"
+  },
+  "whitelist": {
+    "placeholder": "Whitelist directories, split with ';'",
+    "save": "Save Whitelist",
+    "inputFirst": "Input whitelist directories first, use ';' to split"
+  },
+  "actions": {
+    "analyze": "Analyze and Plan",
+    "dryRun": "Dry-run",
+    "rollback": "Rollback",
+    "newSession": "New Session"
+  },
+  "wizard": {
+    "title": "First Run Whitelist Setup ({{step}} / 3)",
+    "step1Hint": "Select allowed directories (split with ';').",
+    "step1Placeholder": "Example: D:/Workspace;D:/Study",
+    "next": "Next",
+    "back": "Back",
+    "skipReadOnly": "Skip (Read-only)",
+    "step2Notice": "Risk notice: operations are limited to whitelisted directories.",
+    "step2Accept": "I have read and accepted the risk notice.",
+    "step3Confirm": "Confirm to save whitelist and enable normal mode.",
+    "confirm": "Confirm"
+  },
+  "feedback": {
+    "followupPlaceholder": "Follow-up answer for low confidence items",
+    "submitFollowup": "Submit Follow-up",
+    "purpose": "Purpose",
+    "correctionProjectPlaceholder": "Corrected project",
+    "saveAsRule": "Save as rule",
+    "saveCorrection": "Save Correction"
+  },
+  "rules": {
+    "refresh": "Refresh Rules",
+    "enable": "Enable",
+    "disable": "Disable"
+  },
+  "updates": {
+    "channelLabel": "Update Channel",
+    "beta": "beta",
+    "stable": "stable",
+    "check": "Check Updates",
+    "download": "Download Update",
+    "install": "Install Update"
+  },
+  "logs": {
+    "anonymize": "Anonymize logs",
+    "export": "Export Logs",
+    "refreshStatus": "Refresh Log Status",
+    "clear": "Clear Logs",
+    "sizeBytes": "Log Size: {{size}} bytes",
+    "warn": "(warn)",
+    "ok": "(ok)"
+  },
+  "status": {
+    "readOnly": "Current Mode: Read-only",
+    "latestVersion": "Latest Version: {{version}}",
+    "notDownloaded": "(not downloaded)",
+    "downloaded": "(downloaded)"
+  }
+}

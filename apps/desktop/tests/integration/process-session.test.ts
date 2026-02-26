@@ -45,6 +45,7 @@ describe("process-session", () => {
     await writeFile(input, "hello M1", "utf-8");
 
     const settings: AppSettings = {
+      language: "en",
       whitelistDirectories: [root],
       readOnlyMode: false,
       classification: {
@@ -86,6 +87,7 @@ describe("process-session", () => {
     await writeFile(input, "low confidence content", "utf-8");
 
     const settings: AppSettings = {
+      language: "en",
       whitelistDirectories: [root],
       readOnlyMode: false,
       classification: {
