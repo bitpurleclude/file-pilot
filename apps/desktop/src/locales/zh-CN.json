@@ -137,6 +137,26 @@
       "secondaryModel": "备选模型",
       "testConnection": "测试连接"
     },
+    "providers": {
+      "title": "LLM 供应商",
+      "useMultiProvider": "使用多供应商模式",
+      "activeProvider": "当前激活供应商",
+      "addProvider": "添加供应商",
+      "addCustom": "添加自定义端点",
+      "presets": "预设供应商",
+      "custom": "自定义端点",
+      "providerName": "供应商名称",
+      "providerType": "供应商类型",
+      "enabled": "启用",
+      "disabled": "禁用",
+      "edit": "编辑",
+      "delete": "删除",
+      "testConnection": "测试连接",
+      "testing": "测试中...",
+      "testSuccess": "连接成功",
+      "testFailed": "连接失败：{{message}}",
+      "noProviders": "暂无配置的供应商，请添加一个"
+    },
     "logsSettings": {
       "title": "日志",
       "currentSize": "当前日志大小",

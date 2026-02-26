@@ -11,6 +11,7 @@ import { ClassificationPanel } from "./panels/classification-panel.js";
 import { LlmPanel } from "./panels/llm-panel.js";
 import { LogsPanel } from "./panels/logs-panel.js";
 import { AdvancedPanel } from "./panels/advanced-panel.js";
+import { ProvidersPanel } from "./panels/providers-panel.js";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -80,6 +81,9 @@ export const SettingsPage = ({
           <TabsTrigger value="llm">
             {t("settings.llm.title")}
           </TabsTrigger>
+          <TabsTrigger value="providers">
+            {t("settings.providers.title")}
+          </TabsTrigger>
           <TabsTrigger value="logs">
             {t("settings.logsSettings.title")}
           </TabsTrigger>
@@ -101,6 +105,10 @@ export const SettingsPage = ({
             <TabsContent value="llm">
               <LlmPanel settings={draft} onChange={setDraft} />
             </TabsContent>
+            <TabsContent value="providers">
+              <ProvidersPanel settings={draft} onChange={setDraft} />
+            </TabsContent>
+
 
             <TabsContent value="logs">
               <LogsPanel

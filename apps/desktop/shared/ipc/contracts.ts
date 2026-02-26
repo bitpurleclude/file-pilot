@@ -145,6 +145,19 @@ export type ListRulesRequest = z.infer<typeof listRulesRequestSchema>;
 export type UpdateRuleRequest = z.infer<typeof updateRuleRequestSchema>;
 export type SaveSettingsRequest = z.infer<typeof saveSettingsRequestSchema>;
 
+export const testProviderConnectionRequestSchema = z.object({
+  providerId: z.string().min(1),
+  baseUrl: z.string().url(),
+  apiKey: z.string().optional(),
+  model: z.string().min(1),
+  authType: z.enum(["bearer", "api-key", "none"]),
+  protocol: z.enum(["openai", "custom"]),
+  endpoint: z.string().optional(),
+  customHeaders: z.record(z.string()).optional()
+});
+
+export type TestProviderConnectionRequest = z.infer<typeof testProviderConnectionRequestSchema>;
+
 export const IPC_CHANNELS = {
   analyze: "fp:analyze",
   apply: "fp:apply",
@@ -163,5 +176,6 @@ export const IPC_CHANNELS = {
   saveCorrections: "fp:save-corrections",
   listRules: "fp:list-rules",
   updateRule: "fp:update-rule",
-  saveSettings: "fp:save-settings"
+  saveSettings: "fp:save-settings",
+  testProviderConnection: "fp:test-provider-connection"
 } as const;

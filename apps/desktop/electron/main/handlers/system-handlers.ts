@@ -6,7 +6,8 @@ import {
   reportClientErrorRequestSchema,
   saveSettingsRequestSchema,
   saveWhitelistRequestSchema,
-  setReadOnlyModeRequestSchema
+  setReadOnlyModeRequestSchema,
+  testProviderConnectionRequestSchema
 } from "../../../shared/ipc/contracts.js";
 import { loadSettings, saveSettings } from "../../../infra/storage/settings-repository.js";
 import { buildLogExportPayload, createDefaultLogExportOptions } from "../../../core/usecases/export-logs.js";
@@ -198,6 +199,110 @@ export const systemHandlers = {
       };
       await saveSettings(settingsRootPath(context), next);
       return { ok: true, data: next };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  }
+,
+
+  testProviderConnectionHandler: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+    const t = traceId();
+    try {
+      const req = testProviderConnectionRequestSchema.parse(payload);
+      
+      await safeWriteLog(context, {
+        level: "info",
+        category: "audit",
+        code: "PROVIDER_TEST_START",
+        message: "provider connection test started",
+        traceId: t,
+        details: { providerId: req.providerId, baseUrl: req.baseUrl }
+      });
+
+      // 构建测试请求
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+      try {
+        const endpoint = req.endpoint ?? "/chat/completions";
+        const url = `${req.baseUrl}${endpoint}`;
+        
+        const headers: Record<string, string> = {
+          "Content-Type": "application/json",
+          ...(req.customHeaders ?? {})
+        };
+        
+        // 添加认证头
+        if (req.authType === "bearer" && req.apiKey !== undefined && req.apiKey.length > 0) {
+          headers["Authorization"] = `Bearer ${req.apiKey}`;
+        } else if (req.authType === "api-key" && req.apiKey !== undefined && req.apiKey.length > 0) {
+          headers["X-API-Key"] = req.apiKey;
+        }
+        
+        // 发送测试请求（简单的 chat completion）
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            model: req.model,
+            messages: [{ role: "user", content: "test" }],
+            max_tokens: 5
+          }),
+          signal: controller.signal
+        });
+        
+        clearTimeout(timer);
+        
+        if (!response.ok) {
+          const errorText = await response.text();
+          await safeWriteLog(context, {
+            level: "warn",
+            category: "audit",
+            code: "PROVIDER_TEST_FAILED",
+            message: "provider connection test failed",
+            traceId: t,
+            details: { providerId: req.providerId, status: response.status, error: errorText }
+          });
+          
+          return {
+            ok: false,
+            error: {
+              code: "PROVIDER_TEST_FAILED",
+              message: `HTTP ${response.status}: ${errorText.slice(0, 200)}`
+            }
+          };
+        }
+        
+        await safeWriteLog(context, {
+          level: "info",
+          category: "audit",
+          code: "PROVIDER_TEST_SUCCESS",
+          message: "provider connection test succeeded",
+          traceId: t,
+          details: { providerId: req.providerId }
+        });
+        
+        return { ok: true, data: { success: true } };
+      } catch (fetchError) {
+        clearTimeout(timer);
+        
+        await safeWriteLog(context, {
+          level: "error",
+          category: "error",
+          code: "PROVIDER_TEST_ERROR",
+          message: "provider connection test error",
+          traceId: t,
+          details: { providerId: req.providerId, error: String(fetchError) }
+        });
+        
+        return {
+          ok: false,
+          error: {
+            code: "PROVIDER_TEST_ERROR",
+            message: String(fetchError)
+          }
+        };
+      }
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
     }

@@ -137,6 +137,26 @@
       "secondaryModel": "Secondary Model",
       "testConnection": "Test Connection"
     },
+    "providers": {
+      "title": "LLM Providers",
+      "useMultiProvider": "Use Multi-Provider Mode",
+      "activeProvider": "Active Provider",
+      "addProvider": "Add Provider",
+      "addCustom": "Add Custom Endpoint",
+      "presets": "Preset Providers",
+      "custom": "Custom Endpoints",
+      "providerName": "Provider Name",
+      "providerType": "Provider Type",
+      "enabled": "Enabled",
+      "disabled": "Disabled",
+      "edit": "Edit",
+      "delete": "Delete",
+      "testConnection": "Test Connection",
+      "testing": "Testing...",
+      "testSuccess": "Connection successful",
+      "testFailed": "Connection failed: {{message}}",
+      "noProviders": "No providers configured, please add one"
+    },
     "logsSettings": {
       "title": "Logs",
       "currentSize": "Current Log Size",

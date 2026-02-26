@@ -60,6 +60,16 @@ export interface FilePilotApi {
   listRules(payload?: { includeDisabled?: boolean }): Promise<IpcResult<ClassificationRule[]>>;
   updateRule(payload: RuleUpdatePayload): Promise<IpcResult<ClassificationRule>>;
   saveSettings(payload: Partial<AppSettings>): Promise<IpcResult<AppSettings>>;
+  testProviderConnection(payload: {
+    providerId: string;
+    baseUrl: string;
+    apiKey?: string;
+    model: string;
+    authType: "bearer" | "api-key" | "none";
+    protocol: "openai" | "custom";
+    endpoint?: string;
+    customHeaders?: Record<string, string>;
+  }): Promise<IpcResult<{ success: boolean }>>;
 }
 
 declare global {

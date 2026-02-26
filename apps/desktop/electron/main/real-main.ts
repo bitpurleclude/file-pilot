@@ -42,6 +42,7 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.listRules, async (_event, payload) => handlers.listRules(context, payload));
   ipcMain.handle(IPC_CHANNELS.updateRule, async (_event, payload) => handlers.updateRule(context, payload));
   ipcMain.handle(IPC_CHANNELS.saveSettings, async (_event, payload) => handlers.saveSettingsHandler(context, payload));
+  ipcMain.handle(IPC_CHANNELS.testProviderConnection, async (_event, payload) => handlers.testProviderConnectionHandler(context, payload));
 };
 
 const appDataRoot = app.getPath("userData");
