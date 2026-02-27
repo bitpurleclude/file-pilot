@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { __test__, checkForUpdates, downloadLatestInstaller } from "../../infra/updater/check-updates.js";
 
@@ -37,8 +37,82 @@ describe("check-updates", () => {
     });
 
     expect(result.available).toBe(true);
+    expect(result.checkStatus).toBe("ok");
     expect(result.latestVersion).toBe("0.1.2");
     expect(result.downloadUrl).toBe("https://example.com/installer.exe");
+  });
+
+  it("returns unreachable when network request fails", async () => {
+    const fakeFetch = vi.fn(async () => {
+      throw new Error("offline");
+    }) as unknown as typeof fetch;
+
+    const result = await checkForUpdates({
+      currentVersion: "0.1.0",
+      channel: "beta",
+      fetchImpl: fakeFetch
+    });
+
+    expect(result.available).toBe(false);
+    expect(result.checkStatus).toBe("unreachable");
+    expect(result.errorCode).toBe("UPDATER_UNREACHABLE");
+  });
+
+  it("returns channel_no_release when selected channel has no release", async () => {
+    const fakeFetch: typeof fetch = (async () => {
+      return {
+        ok: true,
+        json: async () => [
+          {
+            tag_name: "v0.1.2",
+            prerelease: false,
+            draft: false,
+            html_url: "https://example.com/release",
+            body: "notes",
+            assets: [{ name: "File Pilot Setup 0.1.2.exe", browser_download_url: "https://example.com/installer.exe" }]
+          }
+        ]
+      } as Response;
+    }) as typeof fetch;
+
+    const result = await checkForUpdates({
+      currentVersion: "0.1.0",
+      channel: "beta",
+      fetchImpl: fakeFetch
+    });
+
+    expect(result.available).toBe(false);
+    expect(result.checkStatus).toBe("channel_no_release");
+    expect(result.errorCode).toBe("UPDATER_CHANNEL_NO_RELEASE");
+  });
+
+  it("returns asset_missing when release has no installer", async () => {
+    const fakeFetch: typeof fetch = (async () => {
+      return {
+        ok: true,
+        json: async () => [
+          {
+            tag_name: "v0.1.2",
+            prerelease: true,
+            draft: false,
+            html_url: "https://example.com/release",
+            body: "notes",
+            assets: [{ name: "sha256.txt", browser_download_url: "https://example.com/checksum.txt" }]
+          }
+        ]
+      } as Response;
+    }) as typeof fetch;
+
+    const result = await checkForUpdates({
+      currentVersion: "0.1.0",
+      channel: "beta",
+      fetchImpl: fakeFetch
+    });
+
+    expect(result.available).toBe(true);
+    expect(result.checkStatus).toBe("asset_missing");
+    expect(result.errorCode).toBe("UPDATER_ASSET_MISSING");
+    expect(result.downloadUrl).toBeUndefined();
   });
 
   it("downloads installer for latest channel release", async () => {

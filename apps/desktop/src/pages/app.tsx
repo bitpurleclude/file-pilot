@@ -4,6 +4,7 @@ import { Settings } from "lucide-react";
 
 import type { AppSettings } from "../../shared/types/settings.js";
 import type { ClassificationRule } from "../../shared/types/rules.js";
+import type { UpdateInfo } from "../../shared/types/updater.js";
 import type { Purpose } from "../../shared/types/workflow.js";
 import { Button } from "../components/ui/button.js";
 import { mergeAnalyzeData } from "./analyze-state.js";
@@ -12,6 +13,7 @@ import { FirstRunWizard } from "./components/first-run-wizard.js";
 import { RuleManagementPanel } from "./components/rule-management-panel.js";
 import { SettingsPage } from "./settings/settings-page.js";
 import type { AnalyzeData, SaveCorrectionsData, SubmitFollowupData } from "./types.js";
+import { deriveUpdateButtonState, resolveUpdateCheckMessage, type UpdateFlowState } from "./update-controls.js";
 
 const genSessionId = (): string => crypto.randomUUID();
 
@@ -52,6 +54,8 @@ export const App = (): JSX.Element => {
   const [logStatus, setLogStatus] = useState<{ sizeBytes: number; warn: boolean } | null>(null);
   const [readOnlyMode, setReadOnlyMode] = useState<boolean>(false);
   const [updateChannel, setUpdateChannel] = useState<"beta" | "stable">("beta");
+  const [updateCheckResult, setUpdateCheckResult] = useState<UpdateInfo | null>(null);
+  const [updateFlowState, setUpdateFlowState] = useState<UpdateFlowState>("idle");
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [downloadedInstallerPath, setDownloadedInstallerPath] = useState<string | null>(null);
   const [analyzeData, setAnalyzeData] = useState<AnalyzeData | null>(null);
@@ -62,6 +66,14 @@ export const App = (): JSX.Element => {
   const [rules, setRules] = useState<ClassificationRule[]>([]);
 
   const canAnalyze = useMemo(() => filePaths.length > 0 && !readOnlyMode, [filePaths, readOnlyMode]);
+  const updateButtonState = useMemo(
+    () => deriveUpdateButtonState({
+      flowState: updateFlowState,
+      checkResult: updateCheckResult,
+      downloadedInstallerPath
+    }),
+    [downloadedInstallerPath, updateCheckResult, updateFlowState]
+  );
   const firstItemId = analyzeData?.items[0]?.item.id;
 
   useEffect(() => {
@@ -334,25 +346,34 @@ export const App = (): JSX.Element => {
     setMessage(result.ok ? t("app.logsExported", { path: result.data.path }) : t("app.logsExportFailed", { message: result.error.message }));
   };
 
+  const onUpdateChannelChange = (channel: "beta" | "stable"): void => {
+    setUpdateChannel(channel);
+    setUpdateCheckResult(null);
+    setDownloadedInstallerPath(null);
+    setLatestVersion(null);
+  };
+
   const onCheckUpdates = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
       setMessage(t("app.ipcNotReady"));
       return;
     }
 
+    setUpdateFlowState("checking");
+    setMessage(t("app.checkingUpdates"));
     const result = await window.filePilotApi.checkUpdates({ channel: updateChannel });
+    setUpdateFlowState("idle");
     if (!result.ok) {
       setMessage(t("app.checkUpdatesFailed", { message: result.error.message }));
       return;
     }
 
+    setUpdateCheckResult(result.data);
     setLatestVersion(result.data.latestVersion ?? null);
     setDownloadedInstallerPath(null);
-    setMessage(
-      result.data.available
-        ? t("app.updateFound", { version: result.data.latestVersion ?? "unknown" })
-        : t("app.alreadyLatest", { version: result.data.currentVersion })
-    );
+
+    const updateMessage = resolveUpdateCheckMessage(result.data, updateChannel);
+    setMessage(t(updateMessage.key, updateMessage.params));
   };
 
   const onDownloadUpdate = async (): Promise<void> => {
@@ -361,9 +382,17 @@ export const App = (): JSX.Element => {
       return;
     }
 
+    if (!updateButtonState.canDownload) {
+      setMessage(t("app.downloadNotReady"));
+      return;
+    }
+
+    setUpdateFlowState("downloading");
+    setMessage(t("app.downloadingUpdate"));
     const result = await window.filePilotApi.downloadUpdate({ channel: updateChannel });
+    setUpdateFlowState("idle");
     if (!result.ok) {
-      setMessage(t("app.downloadUpdateFailed", { message: result.error.message }));
+      setMessage(t("app.downloadUpdateFailed", { message: `${result.error.code}: ${result.error.message}` }));
       return;
     }
 
@@ -383,9 +412,12 @@ export const App = (): JSX.Element => {
       return;
     }
 
+    setUpdateFlowState("installing");
+    setMessage(t("app.installingUpdate"));
     const result = await window.filePilotApi.installUpdate({ installerPath: downloadedInstallerPath });
+    setUpdateFlowState("idle");
     if (!result.ok) {
-      setMessage(t("app.installUpdateFailed", { message: result.error.message }));
+      setMessage(t("app.installUpdateFailed", { message: `${result.error.code}: ${result.error.message}` }));
       return;
     }
 
@@ -494,7 +526,7 @@ export const App = (): JSX.Element => {
             id="update-channel"
             name="updateChannel"
             value={updateChannel}
-            onChange={(event) => setUpdateChannel(event.target.value as "beta" | "stable")}
+            onChange={(event) => onUpdateChannelChange(event.target.value as "beta" | "stable")}
           >
             <option value="beta">{t("updates.beta")}</option>
             <option value="stable">{t("updates.stable")}</option>
@@ -513,9 +545,9 @@ export const App = (): JSX.Element => {
         <button onClick={onExportLogs}>{t("logs.export")}</button>
         <button onClick={onRefreshLogStatus}>{t("logs.refreshStatus")}</button>
         <button onClick={onClearLogs}>{t("logs.clear")}</button>
-        <button onClick={onCheckUpdates}>{t("updates.check")}</button>
-        <button onClick={onDownloadUpdate}>{t("updates.download")}</button>
-        <button onClick={onInstallUpdate} disabled={downloadedInstallerPath === null}>{t("updates.install")}</button>
+        <button onClick={onCheckUpdates} disabled={!updateButtonState.canCheck}>{t("updates.check")}</button>
+        <button onClick={onDownloadUpdate} disabled={!updateButtonState.canDownload}>{t("updates.download")}</button>
+        <button onClick={onInstallUpdate} disabled={!updateButtonState.canInstall}>{t("updates.install")}</button>
         <button onClick={() => setSessionId(genSessionId())}>{t("actions.newSession")}</button>
       </div>
 

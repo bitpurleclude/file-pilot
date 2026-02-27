@@ -3,6 +3,17 @@
 This file is for agentic coding assistants working in this repository.
 Follow it together with source code and in-repo docs.
 
+## 0) Hard MUST Workflow
+
+- MUST invoke `using-superpowers` before starting any code-task response.
+- MUST invoke `using-git-worktrees` next, and execute implementation in a newly created git worktree.
+- MUST NOT implement code changes directly in the main workspace (`D:\code\windsurf\file-pilot`).
+- MUST include update-maintenance deliverables for every code change:
+  - release information (version, channel, trigger branch)
+  - update documentation changes
+  - rollback instructions
+  - verification evidence (executed commands and outcomes)
+
 ## 1) Project Snapshot
 
 - Stack: Electron + React + TypeScript (`strict`) + Vite + Vitest.
@@ -156,6 +167,11 @@ Run from repository root: `D:\code\windsurf\file-pilot`.
 - Build works: `npm run build`.
 - If packaging-related: run `npm run dist:win`.
 - Update docs when behavior/config/contracts change.
+- Update-maintenance record is complete for this change:
+  - release information (version/channel/trigger branch)
+  - update documentation delta
+  - rollback instructions
+  - verification evidence
 
 ## 12) Common Pitfalls to Avoid
 
@@ -167,9 +183,17 @@ Run from repository root: `D:\code\windsurf\file-pilot`.
 
 ## 13) Agent Workflow Recommendation
 
-1. Read relevant files + docs first.
-2. Make smallest safe change set.
-3. Add/update tests with behavior changes.
-4. Run verification commands.
-5. Update docs for any changed behavior.
-6. Commit with clear `feat/fix/test/docs/chore` prefix.
+1. Invoke `using-superpowers` before any implementation action.
+2. Invoke `using-git-worktrees` and create/switch to a new worktree for the task.
+3. Read relevant files + docs first.
+4. Make smallest safe change set.
+5. Add/update tests with behavior changes.
+6. Run verification commands.
+7. Update docs for any changed behavior.
+8. Produce update-maintenance evidence (release info + docs + rollback + test evidence).
+9. Commit with clear `feat/fix/test/docs/chore` prefix.
+
+### No-Exception Enforcement
+
+- Code-change tasks are not allowed in the main workspace.
+- If a worktree cannot be created, stop implementation and resolve that blocker first.

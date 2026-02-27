@@ -1,8 +1,14 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 
+import { AppError } from "../../shared/errors/app-error.js";
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import type { DownloadedUpdateInfo, UpdateChannel, UpdateInfo } from "../../shared/types/updater.js";
+
+interface GithubReleaseAsset {
+  name: string;
+  browser_download_url: string;
+}
 
 interface GithubRelease {
   tag_name: string;
@@ -10,10 +16,7 @@ interface GithubRelease {
   draft: boolean;
   html_url: string;
   body: string;
-  assets?: Array<{
-    name: string;
-    browser_download_url: string;
-  }>;
+  assets?: GithubReleaseAsset[];
 }
 
 const normalizeVersion = (value: string): string => value.trim().replace(/^v/i, "");
@@ -37,6 +40,44 @@ const compareVersions = (a: string, b: string): number => {
   return 0;
 };
 
+const isGithubReleaseAsset = (value: unknown): value is GithubReleaseAsset => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  return typeof record.name === "string" && typeof record.browser_download_url === "string";
+};
+
+const isGithubRelease = (value: unknown): value is GithubRelease => {
+  if (typeof value !== "object" || value === null) {
+    return false;
+  }
+
+  const record = value as Record<string, unknown>;
+  const maybeAssets = record.assets;
+  if (maybeAssets !== undefined && (!Array.isArray(maybeAssets) || !maybeAssets.every(isGithubReleaseAsset))) {
+    return false;
+  }
+
+  return (
+    typeof record.tag_name === "string"
+    && typeof record.prerelease === "boolean"
+    && typeof record.draft === "boolean"
+    && typeof record.html_url === "string"
+    && typeof record.body === "string"
+  );
+};
+
+const parseReleasesPayload = (value: unknown): GithubRelease[] | null => {
+  if (!Array.isArray(value)) {
+    return null;
+  }
+
+  const releases = value.filter(isGithubRelease);
+  return releases;
+};
+
 const pickRelease = (releases: GithubRelease[], channel: UpdateChannel): GithubRelease | undefined => {
   const filtered = releases.filter((release) => {
     if (release.draft) {
@@ -50,9 +91,41 @@ const pickRelease = (releases: GithubRelease[], channel: UpdateChannel): GithubR
     .sort((a, b) => compareVersions(normalizeVersion(b.tag_name), normalizeVersion(a.tag_name)))[0];
 };
 
-const pickWindowsInstallerAsset = (release: GithubRelease): { name: string; browser_download_url: string } | undefined => {
+const pickWindowsInstallerAsset = (release: GithubRelease): GithubReleaseAsset | undefined => {
   const assets = release.assets ?? [];
   return assets.find((asset) => asset.name.toLowerCase().endsWith(".exe"));
+};
+
+const updaterNetworkError = (message: string, error: unknown): AppError => {
+  return new AppError("UPDATER_UNREACHABLE", message, "SYSTEM", {
+    reason: error instanceof Error ? error.message : "unknown"
+  });
+};
+
+const updaterInvalidResponseError = (message: string, details?: Record<string, unknown>): AppError => {
+  return new AppError("UPDATER_INVALID_RESPONSE", message, "SYSTEM", details);
+};
+
+const parseReleasesFromResponse = async (response: Response): Promise<GithubRelease[]> => {
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch (error) {
+    throw updaterInvalidResponseError("GitHub releases response is not valid JSON", {
+      reason: error instanceof Error ? error.message : "unknown"
+    });
+  }
+
+  const releases = parseReleasesPayload(payload);
+  if (releases === null) {
+    throw updaterInvalidResponseError("GitHub releases payload has invalid shape");
+  }
+
+  return releases;
+};
+
+const getReleasesApiUrl = (): string => {
+  return `https://api.github.com/repos/${UPDATER_CONFIG.githubOwner}/${UPDATER_CONFIG.githubRepo}/releases`;
 };
 
 export const checkForUpdates = async (params: {
@@ -64,42 +137,107 @@ export const checkForUpdates = async (params: {
   const channel = params.channel ?? UPDATER_CONFIG.channel;
 
   const currentVersion = normalizeVersion(params.currentVersion);
-  const apiUrl = `https://api.github.com/repos/${UPDATER_CONFIG.githubOwner}/${UPDATER_CONFIG.githubRepo}/releases`;
+  const apiUrl = getReleasesApiUrl();
 
+  let response: Response;
   try {
-    const response = await fetchImpl(apiUrl, {
+    response = await fetchImpl(apiUrl, {
       headers: {
         Accept: "application/vnd.github+json"
       }
     });
+  } catch (error) {
+    const networkError = updaterNetworkError("Unable to reach update server", error);
+    return {
+      available: false,
+      currentVersion,
+      checkStatus: "unreachable",
+      errorCode: networkError.code,
+      errorMessage: networkError.message
+    };
+  }
 
+  try {
     if (!response.ok) {
-      return { available: false, currentVersion };
+      const invalidResponseError = updaterInvalidResponseError(`Update server returned HTTP ${response.status}`);
+      return {
+        available: false,
+        currentVersion,
+        checkStatus: "invalid_response",
+        errorCode: invalidResponseError.code,
+        errorMessage: invalidResponseError.message
+      };
     }
 
-    const releases = (await response.json()) as GithubRelease[];
+    const releases = await parseReleasesFromResponse(response);
     const latest = pickRelease(releases, channel);
     if (latest === undefined) {
-      return { available: false, currentVersion };
+      return {
+        available: false,
+        currentVersion,
+        checkStatus: "channel_no_release",
+        errorCode: "UPDATER_CHANNEL_NO_RELEASE",
+        errorMessage: `No release found for ${channel} channel`
+      };
     }
 
     const latestVersion = normalizeVersion(latest.tag_name);
     if (compareVersions(latestVersion, currentVersion) <= 0) {
-      return { available: false, currentVersion };
+      return {
+        available: false,
+        currentVersion,
+        latestVersion,
+        releaseUrl: latest.html_url,
+        notes: latest.body,
+        checkStatus: "ok"
+      };
     }
 
-    const downloadUrl = pickWindowsInstallerAsset(latest)?.browser_download_url;
+    const downloadAsset = pickWindowsInstallerAsset(latest);
+    if (downloadAsset === undefined) {
+      return {
+        available: true,
+        currentVersion,
+        latestVersion,
+        releaseUrl: latest.html_url,
+        notes: latest.body,
+        checkStatus: "asset_missing",
+        errorCode: "UPDATER_ASSET_MISSING",
+        errorMessage: "Latest release does not contain a Windows installer asset"
+      };
+    }
 
     return {
       available: true,
       currentVersion,
       latestVersion,
       releaseUrl: latest.html_url,
-      ...(downloadUrl === undefined ? {} : { downloadUrl }),
+      downloadUrl: downloadAsset.browser_download_url,
+      checkStatus: "ok",
       notes: latest.body
     };
-  } catch {
-    return { available: false, currentVersion };
+  } catch (error) {
+    if (error instanceof AppError) {
+      return {
+        available: false,
+        currentVersion,
+        checkStatus: "invalid_response",
+        errorCode: error.code,
+        errorMessage: error.message
+      };
+    }
+
+    const unexpectedError = updaterInvalidResponseError("Unexpected update check failure", {
+      reason: error instanceof Error ? error.message : "unknown"
+    });
+
+    return {
+      available: false,
+      currentVersion,
+      checkStatus: "invalid_response",
+      errorCode: unexpectedError.code,
+      errorMessage: unexpectedError.message
+    };
   }
 };
 
@@ -110,35 +248,56 @@ export const downloadLatestInstaller = async (params: {
 }): Promise<DownloadedUpdateInfo> => {
   const fetchImpl = params.fetchImpl ?? fetch;
   const channel = params.channel ?? UPDATER_CONFIG.channel;
-  const apiUrl = `https://api.github.com/repos/${UPDATER_CONFIG.githubOwner}/${UPDATER_CONFIG.githubRepo}/releases`;
+  const apiUrl = getReleasesApiUrl();
 
-  const response = await fetchImpl(apiUrl, {
-    headers: {
-      Accept: "application/vnd.github+json"
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error("failed to fetch releases");
+  let response: Response;
+  try {
+    response = await fetchImpl(apiUrl, {
+      headers: {
+        Accept: "application/vnd.github+json"
+      }
+    });
+  } catch (error) {
+    throw updaterNetworkError("Unable to reach update server", error);
   }
 
-  const releases = (await response.json()) as GithubRelease[];
+  if (!response.ok) {
+    throw updaterInvalidResponseError(`Update server returned HTTP ${response.status}`);
+  }
+
+  const releases = await parseReleasesFromResponse(response);
   const latest = pickRelease(releases, channel);
   if (latest === undefined) {
-    throw new Error("no release found for selected channel");
+    throw new AppError("UPDATER_CHANNEL_NO_RELEASE", `No release found for ${channel} channel`, "USER");
   }
 
   const installerAsset = pickWindowsInstallerAsset(latest);
   if (installerAsset === undefined) {
-    throw new Error("installer asset not found");
+    throw new AppError("UPDATER_ASSET_MISSING", "Latest release does not contain a Windows installer asset", "USER", {
+      latestVersion: normalizeVersion(latest.tag_name)
+    });
   }
 
-  const installerResponse = await fetchImpl(installerAsset.browser_download_url);
+  let installerResponse: Response;
+  try {
+    installerResponse = await fetchImpl(installerAsset.browser_download_url);
+  } catch (error) {
+    throw updaterNetworkError("Unable to reach installer download URL", error);
+  }
+
   if (!installerResponse.ok) {
-    throw new Error("failed to download installer");
+    throw new AppError("UPDATER_DOWNLOAD_FAILED", `Installer download failed with HTTP ${installerResponse.status}`, "SYSTEM");
   }
 
-  const bytes = new Uint8Array(await installerResponse.arrayBuffer());
+  let bytes: Uint8Array;
+  try {
+    bytes = new Uint8Array(await installerResponse.arrayBuffer());
+  } catch (error) {
+    throw new AppError("UPDATER_DOWNLOAD_FAILED", "Failed to read installer bytes", "SYSTEM", {
+      reason: error instanceof Error ? error.message : "unknown"
+    });
+  }
+
   await mkdir(params.downloadRoot, { recursive: true });
   const filePath = join(params.downloadRoot, basename(installerAsset.name));
   await writeFile(filePath, bytes);
@@ -151,6 +310,8 @@ export const downloadLatestInstaller = async (params: {
 
 export const __test__ = {
   compareVersions,
+  isGithubRelease,
+  parseReleasesPayload,
   normalizeVersion,
   pickRelease,
   pickWindowsInstallerAsset

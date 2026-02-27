@@ -6,6 +6,7 @@ import {
 import { checkForUpdates, downloadLatestInstaller } from "../../../infra/updater/check-updates.js";
 import { launchInstaller } from "../../../infra/updater/install-update.js";
 import { toIpcError, type IpcResult } from "../../../shared/errors/app-error.js";
+import type { DownloadedUpdateInfo, UpdateInfo } from "../../../shared/types/updater.js";
 import {
   type HandlerContext,
   type UnknownPayload,
@@ -15,7 +16,7 @@ import {
 } from "./shared.js";
 
 export const updaterHandlers = {
-  checkUpdates: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+  checkUpdates: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<UpdateInfo>> => {
     const t = traceId();
     try {
       const req = checkUpdatesRequestSchema.parse(payload);
@@ -23,15 +24,25 @@ export const updaterHandlers = {
         currentVersion: context.appVersion,
         ...(req.channel === undefined ? {} : { channel: req.channel })
       });
+      const isOkState = update.checkStatus === "ok";
+      const logCode = isOkState
+        ? update.available ? "MANUAL_UPDATE_AVAILABLE" : "MANUAL_UPDATE_NOT_AVAILABLE"
+        : "MANUAL_UPDATE_CHECK_DEGRADED";
+      const logMessage = isOkState
+        ? update.available ? "manual check found update" : "manual check no update"
+        : "manual check completed with degraded status";
 
       await safeWriteLog(context, {
         level: "info",
         category: "audit",
-        code: update.available ? "MANUAL_UPDATE_AVAILABLE" : "MANUAL_UPDATE_NOT_AVAILABLE",
-        message: update.available ? "manual check found update" : "manual check no update",
+        code: logCode,
+        message: logMessage,
         traceId: t,
         details: {
           available: update.available,
+          checkStatus: update.checkStatus,
+          errorCode: update.errorCode,
+          errorMessage: update.errorMessage,
           currentVersion: update.currentVersion,
           latestVersion: update.latestVersion,
           releaseUrl: update.releaseUrl,
@@ -45,7 +56,7 @@ export const updaterHandlers = {
     }
   },
 
-  downloadUpdate: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
+  downloadUpdate: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<DownloadedUpdateInfo>> => {
     const t = traceId();
     try {
       const req = downloadUpdateRequestSchema.parse(payload);
@@ -68,14 +79,18 @@ export const updaterHandlers = {
 
       return { ok: true, data: downloaded };
     } catch (error) {
+      const ipcError = toIpcError(error);
       await safeWriteLog(context, {
         level: "error",
         category: "error",
         code: "UPDATE_DOWNLOAD_FAILED",
-        message: error instanceof Error ? error.message : "unknown error",
-        traceId: t
+        message: ipcError.message,
+        traceId: t,
+        details: {
+          errorCode: ipcError.code
+        }
       });
-      return { ok: false, error: toIpcError(error) };
+      return { ok: false, error: ipcError };
     }
   },
 
@@ -99,15 +114,18 @@ export const updaterHandlers = {
       context.quitApp();
       return { ok: true, data: { started: true } };
     } catch (error) {
+      const ipcError = toIpcError(error);
       await safeWriteLog(context, {
         level: "error",
         category: "error",
         code: "UPDATE_INSTALL_FAILED",
-        message: error instanceof Error ? error.message : "unknown error",
-        traceId: t
+        message: ipcError.message,
+        traceId: t,
+        details: {
+          errorCode: ipcError.code
+        }
       });
-      return { ok: false, error: toIpcError(error) };
+      return { ok: false, error: ipcError };
     }
   }
 } as const;
-
