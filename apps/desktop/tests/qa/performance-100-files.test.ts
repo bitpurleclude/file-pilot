@@ -28,10 +28,30 @@ const settings: AppSettings = {
     enabled: true,
     autoApplyThreshold: 0.9
   },
-  llm: {
-    baseUrl: "https://example.com/v1",
-    primaryModel: "gpt-4.1",
-    secondaryModel: "gpt-4.1-mini"
+  llmProviders: {
+    activeProviderId: "provider-1",
+    providers: [
+      {
+        id: "provider-1",
+        presetId: "openai",
+        name: "OpenAI",
+        isPreset: true,
+        baseUrl: "https://example.com/v1",
+        authType: "bearer",
+        protocol: "openai",
+        apiKey: "qa-key",
+        primaryModel: "gpt-4.1",
+        secondaryModel: "gpt-4.1-mini",
+        modelControlMode: "manual",
+        intensity: "balanced",
+        intensityProfiles: {
+          speed: { primaryModel: "gpt-4.1-mini", secondaryModel: "gpt-4.1-mini" },
+          balanced: { primaryModel: "gpt-4.1", secondaryModel: "gpt-4.1-mini" },
+          quality: { primaryModel: "gpt-4.1", secondaryModel: "gpt-4.1" }
+        },
+        enabled: true
+      }
+    ]
   }
 };
 
@@ -98,4 +118,3 @@ describe("qa-performance-100-files", () => {
     expect(executeSeconds).toBeLessThan(20);
   });
 });
-

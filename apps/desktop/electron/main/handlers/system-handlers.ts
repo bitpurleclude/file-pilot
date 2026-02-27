@@ -172,17 +172,34 @@ export const systemHandlers = {
     try {
       const req = saveSettingsRequestSchema.parse(payload);
       const current = await loadSettings(settingsRootPath(context));
-      const mergedLlm: AppSettings["llm"] = {
-        baseUrl: req.llm?.baseUrl ?? current.llm.baseUrl,
-        primaryModel: req.llm?.primaryModel ?? current.llm.primaryModel,
-        secondaryModel: req.llm?.secondaryModel ?? current.llm.secondaryModel,
-      };
-      const reqApiKey = req.llm?.apiKey;
-      if (reqApiKey !== undefined) {
-        mergedLlm.apiKey = reqApiKey;
-      } else if (current.llm.apiKey !== undefined) {
-        mergedLlm.apiKey = current.llm.apiKey;
+      let nextProviders = current.llmProviders;
+      if (req.llmProviders !== undefined) {
+        const normalizedProviders = req.llmProviders.providers.map((provider) => {
+          const {
+            presetId,
+            apiKey,
+            customHeaders,
+            endpoint,
+            ...rest
+          } = provider;
+          return {
+            ...rest,
+            ...(presetId === undefined ? {} : { presetId }),
+            ...(apiKey === undefined ? {} : { apiKey }),
+            ...(customHeaders === undefined ? {} : { customHeaders }),
+            ...(endpoint === undefined ? {} : { endpoint })
+          };
+        });
+        const firstProvider = normalizedProviders[0];
+        if (firstProvider === undefined) {
+          throw new Error("llmProviders.providers cannot be empty");
+        }
+        nextProviders = {
+          activeProviderId: req.llmProviders.activeProviderId,
+          providers: [firstProvider, ...normalizedProviders.slice(1)]
+        };
       }
+
       const next: AppSettings = {
         ...current,
         ...(req.language === undefined ? {} : { language: req.language }),
@@ -195,7 +212,7 @@ export const systemHandlers = {
           ...current.ruleLearning,
           ...req.ruleLearning
         },
-        llm: mergedLlm
+        llmProviders: nextProviders
       };
       await saveSettings(settingsRootPath(context), next);
       return { ok: true, data: next };
@@ -308,4 +325,3 @@ export const systemHandlers = {
     }
   }
 } as const;
-

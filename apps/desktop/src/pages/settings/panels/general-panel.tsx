@@ -10,10 +10,11 @@ import {
 } from "../../../components/ui/select.js";
 import { Switch } from "../../../components/ui/switch.js";
 import type { AppSettings } from "../../../../shared/types/settings.js";
+import type { SettingsDraftChange } from "../settings-change.js";
 
 interface GeneralPanelProps {
   settings: AppSettings;
-  onChange: (settings: AppSettings) => void;
+  onChange: SettingsDraftChange;
 }
 
 export const GeneralPanel = ({
@@ -27,7 +28,7 @@ export const GeneralPanel = ({
     onChange({
       ...settings,
       language: newLang,
-    });
+    }, "immediate");
     void i18n.changeLanguage(newLang);
   };
 
@@ -35,7 +36,7 @@ export const GeneralPanel = ({
     onChange({
       ...settings,
       readOnlyMode: checked,
-    });
+    }, "immediate");
   };
 
   return (

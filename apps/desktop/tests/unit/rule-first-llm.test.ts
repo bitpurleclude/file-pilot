@@ -18,11 +18,30 @@ const createSettings = (): AppSettings => ({
     enabled: true,
     autoApplyThreshold: 0.9
   },
-  llm: {
-    baseUrl: "https://example.com/v1",
-    apiKey: "test-key",
-    primaryModel: "gpt-4.1",
-    secondaryModel: "gpt-4.1-mini"
+  llmProviders: {
+    activeProviderId: "provider-1",
+    providers: [
+      {
+        id: "provider-1",
+        presetId: "openai",
+        name: "OpenAI",
+        isPreset: true,
+        baseUrl: "https://example.com/v1",
+        authType: "bearer",
+        protocol: "openai",
+        apiKey: "test-key",
+        primaryModel: "gpt-4.1",
+        secondaryModel: "gpt-4.1-mini",
+        modelControlMode: "manual",
+        intensity: "balanced",
+        intensityProfiles: {
+          speed: { primaryModel: "gpt-4.1-mini", secondaryModel: "gpt-4.1-mini" },
+          balanced: { primaryModel: "gpt-4.1", secondaryModel: "gpt-4.1-mini" },
+          quality: { primaryModel: "gpt-4.1", secondaryModel: "gpt-4.1" }
+        },
+        enabled: true
+      }
+    ]
   }
 });
 
@@ -51,18 +70,18 @@ afterEach(() => {
 
 describe("rule-first-llm classifier", () => {
   it("uses secondary model when primary model fails", async () => {
-    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
       const payload = JSON.parse(String(init?.body ?? "{}")) as { model?: string };
       if (payload.model === "gpt-4.1") {
         return {
           ok: false,
-          json: async () => ({})
+          text: async () => ""
         } as Response;
       }
 
       return {
         ok: true,
-        json: async () => ({
+        text: async () => JSON.stringify({
           choices: [
             {
               message: {
@@ -89,15 +108,11 @@ describe("rule-first-llm classifier", () => {
     expect(result?.promptVersion).toBe("classify.v1");
   });
 
-  it("falls back to local rule when both llm models fail", async () => {
-    globalThis.fetch = vi.fn(async () => {
-      return {
-        ok: false,
-        json: async () => ({})
-      } as Response;
-    }) as typeof fetch;
+  it("falls back to local rule when no provider is enabled", async () => {
+    const settings = createSettings();
+    settings.llmProviders.providers[0].enabled = false;
 
-    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const classifier = new RuleFirstLlmClassifier(settings);
     const result = await classifier.classify({
       ...defaultInput,
       item: {

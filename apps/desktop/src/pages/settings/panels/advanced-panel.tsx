@@ -3,10 +3,11 @@ import { useTranslation } from "react-i18next";
 import { Label } from "../../../components/ui/label.js";
 import { Input } from "../../../components/ui/input.js";
 import type { AppSettings } from "../../../../shared/types/settings.js";
+import type { SettingsDraftChange } from "../settings-change.js";
 
 interface AdvancedPanelProps {
   settings: AppSettings;
-  onChange: (settings: AppSettings) => void;
+  onChange: SettingsDraftChange;
 }
 
 export const AdvancedPanel = ({
@@ -20,7 +21,7 @@ export const AdvancedPanel = ({
       .split(";")
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
-    onChange({ ...settings, whitelistDirectories: directories });
+    onChange({ ...settings, whitelistDirectories: directories }, "debounced");
   };
 
   return (

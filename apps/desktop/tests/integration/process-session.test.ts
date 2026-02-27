@@ -17,12 +17,52 @@ afterEach(async () => {
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
+const createSettings = (root: string): AppSettings => ({
+  language: "en",
+  whitelistDirectories: [root],
+  readOnlyMode: false,
+  classification: {
+    highConfidenceMin: 0.85,
+    mediumConfidenceMin: 0.6,
+    askThreshold: 0.6
+  },
+  ruleLearning: {
+    enabled: true,
+    autoApplyThreshold: 0.9
+  },
+  llmProviders: {
+    activeProviderId: "provider-1",
+    providers: [
+      {
+        id: "provider-1",
+        presetId: "openai",
+        name: "OpenAI",
+        isPreset: true,
+        baseUrl: "https://api.openai.com/v1",
+        authType: "bearer",
+        protocol: "openai",
+        apiKey: "test-key",
+        primaryModel: "gpt-4.1",
+        secondaryModel: "gpt-4.1-mini",
+        modelControlMode: "manual",
+        intensity: "balanced",
+        intensityProfiles: {
+          speed: { primaryModel: "gpt-4.1-mini", secondaryModel: "gpt-4.1-mini" },
+          balanced: { primaryModel: "gpt-4.1", secondaryModel: "gpt-4.1-mini" },
+          quality: { primaryModel: "gpt-4.1", secondaryModel: "gpt-4.1" }
+        },
+        enabled: true
+      }
+    ]
+  }
+});
+
 describe("process-session", () => {
   it("processes whitelisted files and returns dry-run plans", async () => {
     globalThis.fetch = vi.fn(async () => {
       return {
         ok: true,
-        json: async () => ({
+        text: async () => JSON.stringify({
           choices: [
             {
               message: {
@@ -44,25 +84,7 @@ describe("process-session", () => {
     const input = join(root, "note.md");
     await writeFile(input, "hello M1", "utf-8");
 
-    const settings: AppSettings = {
-      language: "en",
-      whitelistDirectories: [root],
-      readOnlyMode: false,
-      classification: {
-        highConfidenceMin: 0.85,
-        mediumConfidenceMin: 0.6,
-        askThreshold: 0.6
-      },
-      ruleLearning: {
-        enabled: true,
-        autoApplyThreshold: 0.9
-      },
-      llm: {
-        baseUrl: "https://api.openai.com/v1",
-        primaryModel: "gpt-4.1",
-        secondaryModel: "gpt-4.1-mini"
-      }
-    };
+    const settings = createSettings(root);
 
     const result = await processSession({
       filePaths: [input],
@@ -86,25 +108,7 @@ describe("process-session", () => {
     const input = join(root, "note.txt");
     await writeFile(input, "low confidence content", "utf-8");
 
-    const settings: AppSettings = {
-      language: "en",
-      whitelistDirectories: [root],
-      readOnlyMode: false,
-      classification: {
-        highConfidenceMin: 0.85,
-        mediumConfidenceMin: 0.6,
-        askThreshold: 0.6
-      },
-      ruleLearning: {
-        enabled: true,
-        autoApplyThreshold: 0.9
-      },
-      llm: {
-        baseUrl: "https://api.openai.com/v1",
-        primaryModel: "gpt-4.1",
-        secondaryModel: "gpt-4.1-mini"
-      }
-    };
+    const settings = createSettings(root);
 
     const lowConfidenceClassifier = {
       classify: async () => ({

@@ -1,50 +1,49 @@
 import { LLM_CONFIG } from "../../shared/config/llm.config.js";
+import { resolveProviderModels } from "../../shared/config/llm-providers.js";
+import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import type { AppSettings } from "../../shared/types/settings.js";
+import { buildHttpRequest, parseResponse } from "./provider-adapter.js";
 
 export interface ChatMessage {
   role: "system" | "user";
   content: string;
 }
 
-export interface ChatCompletionRequest {
-  baseUrl: string;
-  apiKey: string | undefined;
-  model: string;
-  messages: ChatMessage[];
-}
-
-interface ChatCompletionChoice {
-  message?: {
-    content?: string;
-  };
-}
-
-interface ChatCompletionResponse {
-  choices?: ChatCompletionChoice[];
-}
-
 const delay = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
-const callChatApi = async (request: ChatCompletionRequest): Promise<string | null> => {
+const pickActiveProvider = (settings: AppSettings): LlmProviderConfig | null => {
+  const active = settings.llmProviders.providers.find((provider) => (
+    provider.id === settings.llmProviders.activeProviderId
+    && provider.enabled
+  ));
+  if (active !== undefined) {
+    return active;
+  }
+
+  const fallback = settings.llmProviders.providers.find((provider) => provider.enabled);
+  return fallback ?? null;
+};
+
+const callChatApi = async (params: {
+  provider: LlmProviderConfig;
+  messages: ChatMessage[];
+  model: string;
+}): Promise<string | null> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LLM_CONFIG.timeoutMs);
 
   try {
-    const response = await fetch(`${request.baseUrl}/chat/completions`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        ...(request.apiKey === undefined || request.apiKey.length === 0
-          ? {}
-          : { Authorization: `Bearer ${request.apiKey}` })
-      },
-      body: JSON.stringify({
-        model: request.model,
-        messages: request.messages,
-        temperature: 0.2
-      }),
+    const request = buildHttpRequest({
+      provider: params.provider,
+      messages: params.messages,
+      model: params.model
+    });
+    const response = await fetch(request.url, {
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
       signal: controller.signal
     });
 
@@ -52,8 +51,11 @@ const callChatApi = async (request: ChatCompletionRequest): Promise<string | nul
       return null;
     }
 
-    const json = (await response.json()) as ChatCompletionResponse;
-    return json.choices?.[0]?.message?.content ?? null;
+    const responseBody = await response.text();
+    return parseResponse({
+      provider: params.provider,
+      responseBody
+    });
   } catch {
     return null;
   } finally {
@@ -61,9 +63,13 @@ const callChatApi = async (request: ChatCompletionRequest): Promise<string | nul
   }
 };
 
-const callWithRetry = async (request: ChatCompletionRequest): Promise<string | null> => {
+const callWithRetry = async (params: {
+  provider: LlmProviderConfig;
+  messages: ChatMessage[];
+  model: string;
+}): Promise<string | null> => {
   for (let attempt = 0; attempt <= LLM_CONFIG.retryCount; attempt += 1) {
-    const content = await callChatApi(request);
+    const content = await callChatApi(params);
     if (content !== null) {
       return content;
     }
@@ -80,26 +86,30 @@ export const callLlmWithFallback = async (params: {
   settings: AppSettings;
   messages: ChatMessage[];
 }): Promise<{ content: string; model: string; source: "llm-primary" | "llm-secondary" } | null> => {
+  const provider = pickActiveProvider(params.settings);
+  if (provider === null) {
+    return null;
+  }
+
+  const resolvedModels = resolveProviderModels(provider);
   const primary = await callWithRetry({
-    baseUrl: params.settings.llm.baseUrl,
-    apiKey: params.settings.llm.apiKey,
-    model: params.settings.llm.primaryModel,
+    provider,
+    model: resolvedModels.primaryModel,
     messages: params.messages
   });
 
   if (primary !== null) {
-    return { content: primary, model: params.settings.llm.primaryModel, source: "llm-primary" };
+    return { content: primary, model: resolvedModels.primaryModel, source: "llm-primary" };
   }
 
   const secondary = await callWithRetry({
-    baseUrl: params.settings.llm.baseUrl,
-    apiKey: params.settings.llm.apiKey,
-    model: params.settings.llm.secondaryModel,
+    provider,
+    model: resolvedModels.secondaryModel,
     messages: params.messages
   });
 
   if (secondary !== null) {
-    return { content: secondary, model: params.settings.llm.secondaryModel, source: "llm-secondary" };
+    return { content: secondary, model: resolvedModels.secondaryModel, source: "llm-secondary" };
   }
 
   return null;

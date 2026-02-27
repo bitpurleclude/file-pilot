@@ -65,6 +65,60 @@ export const getLogStatusRequestSchema = z.object({}).default({});
 
 export const clearLogsRequestSchema = z.object({}).default({});
 
+const providerModelPairSchema = z.object({
+  primaryModel: z.string().min(1),
+  secondaryModel: z.string().min(1)
+});
+
+const providerIntensityProfilesSchema = z.object({
+  speed: providerModelPairSchema,
+  balanced: providerModelPairSchema,
+  quality: providerModelPairSchema
+});
+
+const providerConfigSchema = z.object({
+  id: z.string().min(1),
+  presetId: z.enum([
+    "openai",
+    "volcano-engine",
+    "deepseek",
+    "moonshot",
+    "zhipu",
+    "alibaba-tongyi",
+    "baidu-wenxin",
+    "siliconflow",
+    "custom"
+  ]).optional(),
+  name: z.string().min(1),
+  isPreset: z.boolean(),
+  baseUrl: z.string().min(1),
+  authType: z.enum(["bearer", "api-key", "none"]),
+  apiKey: z.string().optional(),
+  protocol: z.enum(["openai", "custom"]),
+  primaryModel: z.string().min(1),
+  secondaryModel: z.string().min(1),
+  modelControlMode: z.enum(["intensity", "manual"]),
+  intensity: z.enum(["speed", "balanced", "quality"]),
+  intensityProfiles: providerIntensityProfilesSchema,
+  enabled: z.boolean(),
+  customHeaders: z.record(z.string()).optional(),
+  endpoint: z.string().optional()
+}).strict();
+
+const llmProvidersSchema = z.object({
+  activeProviderId: z.string().min(1),
+  providers: z.array(providerConfigSchema).min(1)
+}).superRefine((value, ctx) => {
+  const hasActiveProvider = value.providers.some((provider) => provider.id === value.activeProviderId);
+  if (!hasActiveProvider) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "activeProviderId must match one provider id",
+      path: ["activeProviderId"]
+    });
+  }
+});
+
 export const saveSettingsRequestSchema = z.object({
   language: z.enum(["zh-CN", "en"]).optional(),
   readOnlyMode: z.boolean().optional(),
@@ -77,13 +131,8 @@ export const saveSettingsRequestSchema = z.object({
     enabled: z.boolean(),
     autoApplyThreshold: z.number().min(0).max(1)
   }).optional(),
-  llm: z.object({
-    baseUrl: z.string().min(1),
-    apiKey: z.string().optional(),
-    primaryModel: z.string().min(1),
-    secondaryModel: z.string().min(1)
-  }).optional()
-});
+  llmProviders: llmProvidersSchema.optional()
+}).strict();
 
 export const submitFollowupRequestSchema = z.object({
   sessionId: z.string().uuid(),

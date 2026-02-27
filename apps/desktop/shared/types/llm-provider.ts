@@ -22,6 +22,21 @@ export type ProviderProtocol =
   | "openai"      // 完全兼容 OpenAI API
   | "custom";     // 需要自定义适配
 
+export type ProviderModelControlMode = "intensity" | "manual";
+
+export type ProviderIntensityLevel = "speed" | "balanced" | "quality";
+
+export interface ProviderModelPair {
+  primaryModel: string;
+  secondaryModel: string;
+}
+
+export interface ProviderIntensityProfiles {
+  speed: ProviderModelPair;
+  balanced: ProviderModelPair;
+  quality: ProviderModelPair;
+}
+
 /**
  * Provider 预设 ID（内置供应商）
  */
@@ -42,6 +57,9 @@ export type ProviderPresetId =
 export interface LlmProviderConfig {
   /** Provider ID（预设 ID 或自定义 UUID） */
   id: string;
+
+  /** 预设模板 ID（仅 isPreset=true 时存在） */
+  presetId?: ProviderPresetId;
   
   /** 显示名称 */
   name: string;
@@ -66,6 +84,15 @@ export interface LlmProviderConfig {
   
   /** 备用模型名称 */
   secondaryModel: string;
+
+  /** 模型选择模式：强度档位 or 手动填写 */
+  modelControlMode: ProviderModelControlMode;
+
+  /** 当前强度档位 */
+  intensity: ProviderIntensityLevel;
+
+  /** 各强度档位对应的主备模型 */
+  intensityProfiles: ProviderIntensityProfiles;
   
   /** 是否启用（用于多 provider 场景） */
   enabled: boolean;
@@ -88,6 +115,8 @@ export interface LlmProviderPreset {
   protocol: ProviderProtocol;
   defaultPrimaryModel: string;
   defaultSecondaryModel: string;
+  intensityProfiles?: ProviderIntensityProfiles;
+  suggestedModels?: string[];
   endpoint?: string;
   customHeaders?: Record<string, string>;
   description: string;

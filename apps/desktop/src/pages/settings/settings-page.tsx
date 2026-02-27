@@ -1,17 +1,18 @@
 import * as React from "react";
-import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.js";
-import { Card, CardContent, CardHeader, CardTitle } from "../../components/ui/card.js";
-import { Button } from "../../components/ui/button.js";
-import { Separator } from "../../components/ui/separator.js";
+
 import type { AppSettings } from "../../../shared/types/settings.js";
-import { GeneralPanel } from "./panels/general-panel.js";
+import { Button } from "../../components/ui/button.js";
+import { Card, CardContent } from "../../components/ui/card.js";
+import { Separator } from "../../components/ui/separator.js";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.js";
+import { AdvancedPanel } from "./panels/advanced-panel.js";
 import { ClassificationPanel } from "./panels/classification-panel.js";
+import { GeneralPanel } from "./panels/general-panel.js";
 import { LlmPanel } from "./panels/llm-panel.js";
 import { LogsPanel } from "./panels/logs-panel.js";
-import { AdvancedPanel } from "./panels/advanced-panel.js";
-import { ProvidersPanel } from "./panels/providers-panel.js";
+import { SettingsAutosaveController, type SettingsAutosaveState } from "./settings-autosave-controller.js";
+import type { SettingsDraftChange } from "./settings-change.js";
 
 interface SettingsPageProps {
   settings: AppSettings;
@@ -23,6 +24,19 @@ interface SettingsPageProps {
   onRefreshLogStatus: () => Promise<void>;
 }
 
+const statusMessageKey = (status: SettingsAutosaveState["status"]): "settings.autoSave.idle" | "settings.autoSave.saving" | "settings.autoSave.saved" | "settings.autoSave.error" => {
+  if (status === "saving") {
+    return "settings.autoSave.saving";
+  }
+  if (status === "saved") {
+    return "settings.autoSave.saved";
+  }
+  if (status === "error") {
+    return "settings.autoSave.error";
+  }
+  return "settings.autoSave.idle";
+};
+
 export const SettingsPage = ({
   settings,
   logStatus,
@@ -33,37 +47,66 @@ export const SettingsPage = ({
   onRefreshLogStatus,
 }: SettingsPageProps): JSX.Element => {
   const { t } = useTranslation();
-  const [draft, setDraft] = useState<AppSettings>(settings);
-  const [saveMessage, setSaveMessage] = useState<string>("");
+  const [draft, setDraft] = React.useState<AppSettings>(settings);
+  const [saveState, setSaveState] = React.useState<SettingsAutosaveState>({ status: "idle" });
+  const autosaveRef = React.useRef<SettingsAutosaveController | null>(null);
 
-  const handleSave = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      return;
-    }
+  React.useEffect(() => {
+    setDraft(settings);
+  }, [settings]);
 
-    const result = await window.filePilotApi.saveSettings(draft);
-    if (result.ok) {
-      onSettingsChange(result.data);
-      setDraft(result.data);
-      setSaveMessage(t("settings.saved"));
-    } else {
-      setSaveMessage(t("settings.saveFailed", { message: result.error.message }));
-    }
+  React.useEffect(() => {
+    autosaveRef.current?.dispose();
+    autosaveRef.current = new SettingsAutosaveController({
+      debounceMs: 600,
+      save: async (nextSettings) => {
+        if (window.filePilotApi === undefined) {
+          throw new Error("IPC not ready");
+        }
+
+        const result = await window.filePilotApi.saveSettings(nextSettings);
+        if (!result.ok) {
+          throw new Error(result.error.message);
+        }
+
+        onSettingsChange(result.data);
+        setDraft(result.data);
+      },
+      onStateChange: setSaveState
+    });
+
+    return () => {
+      autosaveRef.current?.dispose();
+      autosaveRef.current = null;
+    };
+  }, [onSettingsChange]);
+
+  const handleDraftChange: SettingsDraftChange = (nextSettings, mode = "debounced") => {
+    setDraft(nextSettings);
+    autosaveRef.current?.schedule(nextSettings, mode);
   };
 
   return (
     <main className="container max-w-4xl py-6">
-      <div className="flex items-center justify-between mb-6">
+      <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("settings.title")}</h1>
         <div className="flex items-center gap-2">
-          {saveMessage.length > 0 && (
-            <span className="text-sm text-muted-foreground">{saveMessage}</span>
+          <span className={`text-sm ${saveState.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+            {t(statusMessageKey(saveState.status), saveState.errorMessage === undefined ? {} : { message: saveState.errorMessage })}
+          </span>
+          {saveState.status === "error" && (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                autosaveRef.current?.retry();
+              }}
+            >
+              {t("settings.autoSave.retry")}
+            </Button>
           )}
           <Button variant="outline" onClick={onBack}>
             {t("settings.back")}
-          </Button>
-          <Button onClick={handleSave}>
-            {t("settings.save")}
           </Button>
         </div>
       </div>
@@ -72,43 +115,26 @@ export const SettingsPage = ({
 
       <Tabs defaultValue="general">
         <TabsList className="mb-4">
-          <TabsTrigger value="general">
-            {t("settings.general.title")}
-          </TabsTrigger>
-          <TabsTrigger value="classification">
-            {t("settings.classification.title")}
-          </TabsTrigger>
-          <TabsTrigger value="llm">
-            {t("settings.llm.title")}
-          </TabsTrigger>
-          <TabsTrigger value="providers">
-            {t("settings.providers.title")}
-          </TabsTrigger>
-          <TabsTrigger value="logs">
-            {t("settings.logsSettings.title")}
-          </TabsTrigger>
-          <TabsTrigger value="advanced">
-            {t("settings.advanced.title")}
-          </TabsTrigger>
+          <TabsTrigger value="general">{t("settings.general.title")}</TabsTrigger>
+          <TabsTrigger value="classification">{t("settings.classification.title")}</TabsTrigger>
+          <TabsTrigger value="llm">{t("settings.llm.title")}</TabsTrigger>
+          <TabsTrigger value="logs">{t("settings.logsSettings.title")}</TabsTrigger>
+          <TabsTrigger value="advanced">{t("settings.advanced.title")}</TabsTrigger>
         </TabsList>
 
         <Card>
           <CardContent className="pt-6">
             <TabsContent value="general">
-              <GeneralPanel settings={draft} onChange={setDraft} />
+              <GeneralPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
 
             <TabsContent value="classification">
-              <ClassificationPanel settings={draft} onChange={setDraft} />
+              <ClassificationPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
 
             <TabsContent value="llm">
-              <LlmPanel settings={draft} onChange={setDraft} />
+              <LlmPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
-            <TabsContent value="providers">
-              <ProvidersPanel settings={draft} onChange={setDraft} />
-            </TabsContent>
-
 
             <TabsContent value="logs">
               <LogsPanel
@@ -120,7 +146,7 @@ export const SettingsPage = ({
             </TabsContent>
 
             <TabsContent value="advanced">
-              <AdvancedPanel settings={draft} onChange={setDraft} />
+              <AdvancedPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
           </CardContent>
         </Card>

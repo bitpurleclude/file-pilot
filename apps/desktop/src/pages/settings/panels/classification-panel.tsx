@@ -4,10 +4,11 @@ import { Label } from "../../../components/ui/label.js";
 import { Input } from "../../../components/ui/input.js";
 import { Switch } from "../../../components/ui/switch.js";
 import type { AppSettings } from "../../../../shared/types/settings.js";
+import type { SettingsDraftChange } from "../settings-change.js";
 
 interface ClassificationPanelProps {
   settings: AppSettings;
-  onChange: (settings: AppSettings) => void;
+  onChange: SettingsDraftChange;
 }
 
 export const ClassificationPanel = ({
@@ -16,30 +17,36 @@ export const ClassificationPanel = ({
 }: ClassificationPanelProps): JSX.Element => {
   const { t } = useTranslation();
 
-  const handleChange = (
+const handleChange = (
     key: keyof AppSettings["classification"],
     value: number
   ) => {
+    if (Number.isNaN(value)) {
+      return;
+    }
     onChange({
       ...settings,
       classification: {
         ...settings.classification,
         [key]: value,
       },
-    });
+    }, "debounced");
   };
 
   const handleRuleLearningChange = (
     key: keyof AppSettings["ruleLearning"],
     value: boolean | number
   ) => {
+    if (typeof value === "number" && Number.isNaN(value)) {
+      return;
+    }
     onChange({
       ...settings,
       ruleLearning: {
         ...settings.ruleLearning,
         [key]: value,
       },
-    });
+    }, typeof value === "boolean" ? "immediate" : "debounced");
   };
 
   return (

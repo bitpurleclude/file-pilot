@@ -59,6 +59,7 @@ export interface FilePilotApi {
   }): Promise<IpcResult<SaveCorrectionsResponseData>>;
   listRules(payload?: { includeDisabled?: boolean }): Promise<IpcResult<ClassificationRule[]>>;
   updateRule(payload: RuleUpdatePayload): Promise<IpcResult<ClassificationRule>>;
+  // Provider-only settings: legacy `llm` payload is rejected by IPC contract.
   saveSettings(payload: Partial<AppSettings>): Promise<IpcResult<AppSettings>>;
   testProviderConnection(payload: {
     providerId: string;
