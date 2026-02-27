@@ -31,6 +31,8 @@ playwright-report/
 # Editor / local tooling
 .vscode/
 .codex/
+.worktrees/
+worktrees/
 
 # OS files
 .DS_Store
