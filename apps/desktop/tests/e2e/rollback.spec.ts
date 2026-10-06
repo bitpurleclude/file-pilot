@@ -4,9 +4,9 @@ import { basename, isAbsolute, join, relative, sep } from "node:path";
 
 import { expect, test, type Page } from "@playwright/test";
 
-import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
 import { startLlmStub } from "./helpers/llm-stub.js";
+import { redirectActiveProvider } from "./helpers/provider-redirect.js";
 
 const STUB_API_KEY = "e2e-stub-key";
 const STUB_PROJECT = "StubProject";
@@ -149,14 +149,16 @@ const toSessionSnapshot = (data: unknown, stage: string): SessionSnapshot => {
 };
 
 /**
- * 阶段 1：白名单 → saveSettings 指向本地 stub → analyze。
+ * 阶段 1：白名单 → analyze。
+ * provider 重定向（saveSettings 指向本地 stub）由 helpers/provider-redirect.ts 统一处理，
+ * 调用方在进入本阶段前先 await redirectActiveProvider(...)。
  * 返回原始 IPC 信封（可序列化），由 Node 侧收窄断言。
  */
 const analyzePhase = async (
   page: Page,
-  params: { sandboxDir: string; stubUrl: string; stubApiKey: string; filePaths: string[] }
+  params: { sandboxDir: string; filePaths: string[] }
 ): Promise<unknown> => {
-  return page.evaluate(async ({ sandboxDir, stubUrl, stubApiKey, filePaths }) => {
+  return page.evaluate(async ({ sandboxDir, filePaths }) => {
     if (window.filePilotApi === undefined) {
       throw new Error("window.filePilotApi is missing");
     }
@@ -165,28 +167,6 @@ const analyzePhase = async (
     const whitelist = await api.saveWhitelist({ directories: [sandboxDir] });
     if (!whitelist.ok) {
       throw new Error(`saveWhitelist failed: ${whitelist.error.message}`);
-    }
-
-    // providerConfigSchema 是 strict 的：从 getSettings 结果原样改字段后回传。
-    const settings = await api.getSettings();
-    if (!settings.ok) {
-      throw new Error(`getSettings failed: ${settings.error.message}`);
-    }
-    const activeProviderId = settings.data.llmProviders.activeProviderId;
-    const providers: LlmProviderConfig[] = settings.data.llmProviders.providers.map((provider) => (
-      provider.id === activeProviderId
-        ? { ...provider, baseUrl: stubUrl, apiKey: stubApiKey }
-        : provider
-    ));
-    const [firstProvider, ...restProviders] = providers;
-    if (firstProvider === undefined) {
-      throw new Error("no providers in settings");
-    }
-    const saved = await api.saveSettings({
-      llmProviders: { activeProviderId, providers: [firstProvider, ...restProviders] }
-    });
-    if (!saved.ok) {
-      throw new Error(`saveSettings failed: ${saved.error.message}`);
     }
 
     return api.analyze({ sessionId: crypto.randomUUID(), filePaths });
@@ -256,14 +236,15 @@ test("real move then rollback restores every sandbox file end to end", async () 
     await page.waitForLoadState("domcontentloaded");
     const workspaceRoot = electronApp.launchDirs.workspaceRoot;
 
+    // ---- 重定向 active provider 到本地 stub（只改 settings，失败即用例失败）----
+    await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
+
     // ---- analyze：确定性 stub 分类（Documents/StubProject），plan 目标必须落在隔离 workspaceRoot 下 ----
     const analyzed = toAnalyzeSnapshot(
       expectOkData(
         asIpcEnvelope(
           await analyzePhase(page, {
             sandboxDir: sandbox,
-            stubUrl: stub.url,
-            stubApiKey: STUB_API_KEY,
             filePaths: [fileA, fileB]
           }),
           "analyze"

@@ -3,9 +3,9 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
 import { startLlmStub } from "./helpers/llm-stub.js";
+import { redirectActiveProvider } from "./helpers/provider-redirect.js";
 
 const STUB_API_KEY = "e2e-stub-key";
 
@@ -24,40 +24,21 @@ test("app starts with sqlite migration enabled and analyze still works", async (
     await page.waitForLoadState("domcontentloaded");
     await expect(page.getByRole("heading", { name: "File-Pilot" })).toBeVisible();
 
-    const result = await page.evaluate(async ({ dir, filePath, stubUrl, stubApiKey }) => {
+    // 接入本地 stub 的 provider 重定向由 helper 统一完成（只改 settings）。
+    await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
+
+    const result = await page.evaluate(async ({ dir, filePath }) => {
       if (window.filePilotApi === undefined) {
         return { ok: false, reason: "missing-api" };
       }
 
       await window.filePilotApi.saveWhitelist({ directories: [dir] });
 
-      const settings = await window.filePilotApi.getSettings();
-      if (!settings.ok) {
-        return { ok: false, reason: "get-settings-failed", detail: settings.error.message };
-      }
-      // providerConfigSchema 是 strict 的：从 getSettings 结果原样改字段后回传。
-      const activeProviderId = settings.data.llmProviders.activeProviderId;
-      const providers: LlmProviderConfig[] = settings.data.llmProviders.providers.map((provider) => (
-        provider.id === activeProviderId
-          ? { ...provider, baseUrl: stubUrl, apiKey: stubApiKey }
-          : provider
-      ));
-      const [firstProvider, ...restProviders] = providers;
-      if (firstProvider === undefined) {
-        return { ok: false, reason: "no-providers" };
-      }
-      const saved = await window.filePilotApi.saveSettings({
-        llmProviders: { activeProviderId, providers: [firstProvider, ...restProviders] }
-      });
-      if (!saved.ok) {
-        return { ok: false, reason: "save-settings-failed", detail: saved.error.message };
-      }
-
       return window.filePilotApi.analyze({
         sessionId: crypto.randomUUID(),
         filePaths: [filePath]
       });
-    }, { dir: sandbox, filePath: sample, stubUrl: stub.url, stubApiKey: STUB_API_KEY });
+    }, { dir: sandbox, filePath: sample });
 
     expect(result).toHaveProperty("ok", true);
   } finally {

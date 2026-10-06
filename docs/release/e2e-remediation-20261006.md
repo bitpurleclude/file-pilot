@@ -27,6 +27,7 @@
 - 文档修复：`apps/desktop/tests/e2e/README.md` 重写（标题 `File-Pilot`、spec 清单、测试隔离章节、LLM stub 章节、MCP 章节标题引用修正）；`README.md` 常用命令与测试策略补充。
 - QA 批式覆盖：`apps/desktop/tests/qa/performance-100-files.test.ts` mock classifier 补充 `classifyMany`，统计批量调用次数（`batchCalls`）并断言 ≥1，证明 100 文件性能测试走批式分类路径；QA 报告对象新增 `batchCalls` 字段；8s/20s 阈值不变。
 - 数据污染清理：备份式清理 e2e 历史污染（`%APPDATA%\Electron` 整目录改名为 `Electron.e2e-pollution-backup-20261006`；`%APPDATA%\file-pilot` 的 settings.json 白名单重置为空（原值指向已删除的测试临时目录）、`data.db` 中 e2e 产生的 session/decision 行清除，两者均有 `.before-cleanup-20261006` 备份）。
+- P3 收尾：provider 重定向样板收敛为 `apps/desktop/tests/e2e/helpers/provider-redirect.ts`（error-path/workflow/rule-learning/migration/rollback/llm-success 六个 spec 复用），与 electron-launch mkdtemp 失败清理补强（userData 建成后 workspace mkdtemp 抛错时同样清理已建临时目录，不再泄漏）。
 
 ## 更新文档变更
 

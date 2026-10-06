@@ -4,7 +4,6 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import { CLASSIFICATION_CONFIG } from "../../shared/config/classification.config.js";
-import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import type { ContentSummary, FileItem } from "../../shared/types/workflow.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
 import type { IsolatedElectronApplication } from "./helpers/electron-launch.js";
@@ -14,6 +13,7 @@ import {
   isBatchPrompt,
   startLlmStub
 } from "./helpers/llm-stub.js";
+import { redirectActiveProvider } from "./helpers/provider-redirect.js";
 
 const STUB_API_KEY = "e2e-stub-key";
 const STUB_PROJECT = "StubProject";
@@ -33,7 +33,7 @@ interface AnalyzedItemSnapshot {
 
 type AnalyzeFlowResult =
   | { ok: false; stage: string; detail: string }
-  | { ok: true; primaryModel: string; items: AnalyzedItemSnapshot[] };
+  | { ok: true; items: AnalyzedItemSnapshot[] };
 
 interface RenderedPrompts {
   single: string;
@@ -104,14 +104,17 @@ const renderRealTemplatePrompts = async (): Promise<RenderedPrompts> => {
 };
 
 /**
- * 在被测应用内完成：白名单 → getSettings → 改 baseUrl/apiKey → saveSettings → analyze。
+ * 在被测应用内完成：白名单 → analyze。
+ * provider 重定向（getSettings → 改 baseUrl/apiKey → saveSettings → 返回主模型名）
+ * 由 helpers/provider-redirect.ts 统一处理，调用方在进入本流程前先
+ * await redirectActiveProvider(...)，主模型名直接取 helper 返回值。
  * 返回扁平快照（evaluate 载荷必须可 JSON 序列化，且不得引用闭包外部变量）。
  */
 const runWhitelistAndAnalyze = async (
   page: Page,
-  params: { sandboxDir: string; stubUrl: string; apiKey: string; filePaths: string[] }
+  params: { sandboxDir: string; filePaths: string[] }
 ): Promise<AnalyzeFlowResult> => {
-  return page.evaluate(async ({ sandboxDir, stubUrl, apiKey, filePaths }) => {
+  return page.evaluate(async ({ sandboxDir, filePaths }) => {
     if (window.filePilotApi === undefined) {
       return { ok: false as const, stage: "preload", detail: "window.filePilotApi is missing" };
     }
@@ -122,43 +125,6 @@ const runWhitelistAndAnalyze = async (
       return { ok: false as const, stage: "save-whitelist", detail: whitelist.error.message };
     }
 
-    const settings = await api.getSettings();
-    if (!settings.ok) {
-      return { ok: false as const, stage: "get-settings", detail: settings.error.message };
-    }
-
-    // saveSettings 的 providerConfigSchema 是 strict 的：从 getSettings 结果原样改字段后回传。
-    const activeProviderId = settings.data.llmProviders.activeProviderId;
-    const providers: LlmProviderConfig[] = settings.data.llmProviders.providers.map((provider) => (
-      provider.id === activeProviderId
-        ? { ...provider, baseUrl: stubUrl, apiKey }
-        : provider
-    ));
-    const [firstProvider, ...restProviders] = providers;
-    if (firstProvider === undefined) {
-      return { ok: false as const, stage: "providers", detail: "no providers in settings" };
-    }
-
-    const saved = await api.saveSettings({
-      llmProviders: {
-        activeProviderId,
-        providers: [firstProvider, ...restProviders]
-      }
-    });
-    if (!saved.ok) {
-      return { ok: false as const, stage: "save-settings", detail: saved.error.message };
-    }
-
-    const active = saved.data.llmProviders.providers.find(
-      (provider) => provider.id === saved.data.llmProviders.activeProviderId
-    );
-    if (active === undefined) {
-      return { ok: false as const, stage: "active-provider", detail: "active provider not found" };
-    }
-    const primaryModel = active.modelControlMode === "manual"
-      ? active.primaryModel
-      : active.intensityProfiles[active.intensity].primaryModel;
-
     const analyze = await api.analyze({ sessionId: crypto.randomUUID(), filePaths });
     if (!analyze.ok) {
       return { ok: false as const, stage: "analyze", detail: analyze.error.message };
@@ -166,7 +132,6 @@ const runWhitelistAndAnalyze = async (
 
     return {
       ok: true as const,
-      primaryModel,
       items: analyze.data.items.map((item) => ({
         fileId: item.item.id,
         name: item.item.name,
@@ -221,10 +186,10 @@ test("单文件成功路径：主模型 LLM 分类命中 + 单文件模板判别
   try {
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
+    // 重定向 active provider 到本地 stub；主模型名取自保存后的 settings（helper 返回值）。
+    const { primaryModel } = await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
     const flow = expectFlowOk(await runWhitelistAndAnalyze(page, {
       sandboxDir: sandbox,
-      stubUrl: stub.url,
-      apiKey: STUB_API_KEY,
       filePaths: [filePath]
     }));
 
@@ -236,10 +201,13 @@ test("单文件成功路径：主模型 LLM 分类命中 + 单文件模板判别
     expect(item.decisionSource).toBe("llm-primary");
     expect(item.project).toBe(STUB_PROJECT);
     expect(item.reasons).toContain(STUB_USAGE_REASON);
-    expect(item.reasons).toContain(`model:${flow.primaryModel}`);
+    expect(item.reasons).toContain(`model:${primaryModel}`);
     expect(item.promptVersion).toBe(prompts.singleVersion);
 
     const requests = stub.requests();
+    // 脆弱性：以下请求次数为精确断言，依赖 LLM_CONFIG.batchSize = 10（1 个文件也先走
+    // 1 次批式）与空规则库（无预置规则短路 LLM）；调整 batchSize / llmConcurrency 或
+    // 引入预置规则时需同步更新这些计数。
     expect(requests).toHaveLength(2); // 1 次批式触发 + 1 次降级单文件调用
     const singleRequests = requests.filter((request) => !request.isBatch);
     expect(singleRequests).toHaveLength(1);
@@ -247,7 +215,7 @@ test("单文件成功路径：主模型 LLM 分类命中 + 单文件模板判别
     if (single === undefined) {
       throw new Error("unreachable: single request asserted present");
     }
-    expect(single.model).toBe(flow.primaryModel);
+    expect(single.model).toBe(primaryModel);
     for (const request of requests) {
       expect(request.headers["authorization"]).toBe(`Bearer ${STUB_API_KEY}`);
     }
@@ -279,10 +247,10 @@ test("批式路径：3 个文件仅 1 次批式调用（批量降成本）+ 批�
   try {
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
+    // 重定向 active provider 到本地 stub；主模型名取自保存后的 settings（helper 返回值）。
+    const { primaryModel } = await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
     const flow = expectFlowOk(await runWhitelistAndAnalyze(page, {
       sandboxDir: sandbox,
-      stubUrl: stub.url,
-      apiKey: STUB_API_KEY,
       filePaths
     }));
 
@@ -291,11 +259,13 @@ test("批式路径：3 个文件仅 1 次批式调用（批量降成本）+ 批�
       expect(item.decisionSource).toBe("llm-primary");
       expect(item.project).toBe(STUB_PROJECT);
       expect(item.reasons).toContain(STUB_USAGE_REASON);
-      expect(item.reasons).toContain(`model:${flow.primaryModel}`);
+      expect(item.reasons).toContain(`model:${primaryModel}`);
       expect(item.promptVersion).toBe(prompts.batchVersion);
     }
 
     const requests = stub.requests();
+    // 脆弱性：以下请求次数为精确断言，依赖 LLM_CONFIG.batchSize = 10（3 个文件落在一个
+    // 批次内）与空规则库；调整 batchSize / llmConcurrency 或引入预置规则时需同步更新这些计数。
     // 3 个文件在默认 batchSize=10 内：应为 1 次批式调用（≤1）。
     expect(requests).toHaveLength(1);
     const batchRequest = requests[0];
@@ -303,7 +273,7 @@ test("批式路径：3 个文件仅 1 次批式调用（批量降成本）+ 批�
       throw new Error("unreachable: batch request asserted present");
     }
     expect(batchRequest.isBatch).toBe(true);
-    expect(batchRequest.model).toBe(flow.primaryModel);
+    expect(batchRequest.model).toBe(primaryModel);
     expect(batchRequest.headers["authorization"]).toBe(`Bearer ${STUB_API_KEY}`);
     expect([...batchRequest.ids].sort()).toEqual([...flow.items.map((item) => item.fileId)].sort());
   } finally {
@@ -324,10 +294,10 @@ test("401 降级：不重试、不切备模型，快速落到本地规则兜底"
   try {
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
+    // 主模型名取自保存后的 settings（helper 返回值），用于断言备模型绝不被尝试。
+    const { primaryModel } = await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
     const flow = expectFlowOk(await runWhitelistAndAnalyze(page, {
       sandboxDir: sandbox,
-      stubUrl: stub.url,
-      apiKey: STUB_API_KEY,
       filePaths: [filePath]
     }));
 
@@ -341,13 +311,15 @@ test("401 降级：不重试、不切备模型，快速落到本地规则兜底"
     expect(item.reasons).toContain(LOCAL_FALLBACK_DOC_REASON);
 
     const requests = stub.requests();
+    // 脆弱性：以下请求次数为精确断言，依赖 LLM_CONFIG.batchSize = 10（1 个文件先走
+    // 1 次批式）与空规则库；调整 batchSize / llmConcurrency 或引入预置规则时需同步更新这些计数。
     // 1 次批式（401 后不重试：retryCount=2 若重试会是 3 次批式）
     // + 1 次逐条降级单文件（同样 401 → 本地兜底）。
     expect(requests).toHaveLength(2);
     expect(requests.filter((request) => request.isBatch)).toHaveLength(1);
     // 403/401 意味着同一把 key 不可用：备模型绝不能被尝试，所有请求都指向主模型。
     for (const request of requests) {
-      expect(request.model).toBe(flow.primaryModel);
+      expect(request.model).toBe(primaryModel);
       expect(request.headers["authorization"]).toBe(`Bearer ${STUB_API_KEY}`);
     }
   } finally {
@@ -381,10 +353,9 @@ test("批式响应非法 JSON：整块降级逐条单调用，analyze 仍成功�
   try {
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
+    await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
     const flow = expectFlowOk(await runWhitelistAndAnalyze(page, {
       sandboxDir: sandbox,
-      stubUrl: stub.url,
-      apiKey: STUB_API_KEY,
       filePaths
     }));
 
@@ -396,6 +367,8 @@ test("批式响应非法 JSON：整块降级逐条单调用，analyze 仍成功�
     }
 
     const requests = stub.requests();
+    // 脆弱性：以下请求次数为精确断言，依赖 LLM_CONFIG.batchSize = 10（3 个文件落在一个
+    // 批次内）与空规则库；调整 batchSize / llmConcurrency 或引入预置规则时需同步更新这些计数。
     const batchRequests = requests.filter((request) => request.isBatch);
     const singleRequests = requests.filter((request) => !request.isBatch);
     expect(batchRequests).toHaveLength(1); // content 级不可解析不触发 invalid-response 重试

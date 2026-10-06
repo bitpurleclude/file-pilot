@@ -3,9 +3,9 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
 import { startLlmStub } from "./helpers/llm-stub.js";
+import { redirectActiveProvider } from "./helpers/provider-redirect.js";
 
 const STUB_API_KEY = "e2e-stub-key";
 
@@ -25,36 +25,16 @@ test("manual correction can be saved as rule and reused in next analyze", async 
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
 
-    const result = await page.evaluate(async ({ sandboxDir, firstFile, secondFile, stubUrl, stubApiKey }) => {
+    // 把 active provider 指向本地 stub，保证 analyze 不打真实外部 API。
+    await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
+
+    const result = await page.evaluate(async ({ sandboxDir, firstFile, secondFile }) => {
       if (window.filePilotApi === undefined) {
         return { ok: false, reason: "missing-api" };
       }
       const api = window.filePilotApi;
 
       await api.saveWhitelist({ directories: [sandboxDir] });
-
-      // 把 active provider 指向本地 stub，保证 analyze 不打真实外部 API。
-      const settings = await api.getSettings();
-      if (!settings.ok) {
-        return { ok: false, reason: "get-settings-failed", detail: settings.error.message };
-      }
-      // providerConfigSchema 是 strict 的：从 getSettings 结果原样改字段后回传。
-      const activeProviderId = settings.data.llmProviders.activeProviderId;
-      const providers: LlmProviderConfig[] = settings.data.llmProviders.providers.map((provider) => (
-        provider.id === activeProviderId
-          ? { ...provider, baseUrl: stubUrl, apiKey: stubApiKey }
-          : provider
-      ));
-      const [firstProvider, ...restProviders] = providers;
-      if (firstProvider === undefined) {
-        return { ok: false, reason: "no-providers" };
-      }
-      const saved = await api.saveSettings({
-        llmProviders: { activeProviderId, providers: [firstProvider, ...restProviders] }
-      });
-      if (!saved.ok) {
-        return { ok: false, reason: "save-settings-failed", detail: saved.error.message };
-      }
 
       const firstSessionId = crypto.randomUUID();
       const analyze1 = await api.analyze({ sessionId: firstSessionId, filePaths: [firstFile] });
@@ -77,7 +57,7 @@ test("manual correction can be saved as rule and reused in next analyze", async 
       });
 
       return { analyze1, correction, analyze2 };
-    }, { sandboxDir: sandbox, firstFile: fileA, secondFile: fileB, stubUrl: stub.url, stubApiKey: STUB_API_KEY });
+    }, { sandboxDir: sandbox, firstFile: fileA, secondFile: fileB });
 
     expect(result).toHaveProperty("analyze1.ok", true);
     expect(result).toHaveProperty("correction.ok", true);

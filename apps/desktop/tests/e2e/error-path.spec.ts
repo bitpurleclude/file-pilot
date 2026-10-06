@@ -3,9 +3,9 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
-import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
 import { startLlmStub } from "./helpers/llm-stub.js";
+import { redirectActiveProvider } from "./helpers/provider-redirect.js";
 
 const STUB_API_KEY = "e2e-stub-key";
 
@@ -25,36 +25,17 @@ test("analyze rejects non-whitelist paths and falls back to local rule on llm fa
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
 
-    const result = await page.evaluate(async ({ allow, deniedFile, allowedFile, stubUrl, stubApiKey }) => {
+    // 把 active provider 指向本地 401 stub：LLM 失败路径变为确定性（无外部网络依赖）。
+    // 重定向只改 settings，与 stub 的 401 模式无关；失败时 helper 直接抛错使用例失败。
+    await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
+
+    const result = await page.evaluate(async ({ allow, deniedFile, allowedFile }) => {
       if (window.filePilotApi === undefined) {
         return { ok: false, reason: "missing-api" };
       }
       const api = window.filePilotApi;
 
       await api.saveWhitelist({ directories: [allow] });
-
-      // 把 active provider 指向本地 401 stub：LLM 失败路径变为确定性（无外部网络依赖）。
-      const settings = await api.getSettings();
-      if (!settings.ok) {
-        return { ok: false, reason: "get-settings-failed", detail: settings.error.message };
-      }
-      // providerConfigSchema 是 strict 的：从 getSettings 结果原样改字段后回传。
-      const activeProviderId = settings.data.llmProviders.activeProviderId;
-      const providers: LlmProviderConfig[] = settings.data.llmProviders.providers.map((provider) => (
-        provider.id === activeProviderId
-          ? { ...provider, baseUrl: stubUrl, apiKey: stubApiKey }
-          : provider
-      ));
-      const [firstProvider, ...restProviders] = providers;
-      if (firstProvider === undefined) {
-        return { ok: false, reason: "no-providers" };
-      }
-      const saved = await api.saveSettings({
-        llmProviders: { activeProviderId, providers: [firstProvider, ...restProviders] }
-      });
-      if (!saved.ok) {
-        return { ok: false, reason: "save-settings-failed", detail: saved.error.message };
-      }
 
       const analyze = await api.analyze({
         sessionId: crypto.randomUUID(),
@@ -73,7 +54,7 @@ test("analyze rejects non-whitelist paths and falls back to local rule on llm fa
       });
 
       return { analyze, fallbackAnalyze, report };
-    }, { allow: allowDir, deniedFile: denyFile, allowedFile, stubUrl: stub.url, stubApiKey: STUB_API_KEY });
+    }, { allow: allowDir, deniedFile: denyFile, allowedFile });
 
     expect(result).toHaveProperty("analyze.ok", false);
     expect(result).toHaveProperty("analyze.error.code", "USER_PATH_NOT_ALLOWED");

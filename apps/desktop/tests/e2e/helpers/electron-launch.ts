@@ -74,19 +74,30 @@ export const launchElectronApp = async (
 
   const createdDirs: string[] = [];
 
+  // Create both temp dirs under one failure-cleanup path (same createdDirs sweep
+  // as electron.launch below): if the workspace mkdtemp throws after the userData
+  // mkdtemp already succeeded, the first dir would otherwise leak.
   let userDataDir: string | undefined = options.userDataDir;
-  if (userDataDir === undefined && isolate) {
-    userDataDir = await mkdtemp(join(tmpdir(), USER_DATA_TMP_PREFIX));
-    createdDirs.push(userDataDir);
+  let workspaceRoot: string | undefined = options.workspaceRoot;
+  if (isolate) {
+    try {
+      if (userDataDir === undefined) {
+        userDataDir = await mkdtemp(join(tmpdir(), USER_DATA_TMP_PREFIX));
+        createdDirs.push(userDataDir);
+      }
+      if (workspaceRoot === undefined) {
+        workspaceRoot = await mkdtemp(join(tmpdir(), WORKSPACE_TMP_PREFIX));
+        createdDirs.push(workspaceRoot);
+      }
+    } catch (error) {
+      for (const dir of createdDirs) {
+        removeDirQuietly(dir);
+      }
+      throw error;
+    }
   }
   if (userDataDir !== undefined) {
     env.FILE_PILOT_USER_DATA_DIR = userDataDir;
-  }
-
-  let workspaceRoot: string | undefined = options.workspaceRoot;
-  if (workspaceRoot === undefined && isolate) {
-    workspaceRoot = await mkdtemp(join(tmpdir(), WORKSPACE_TMP_PREFIX));
-    createdDirs.push(workspaceRoot);
   }
   if (workspaceRoot !== undefined) {
     env.FILE_PILOT_WORKSPACE_ROOT = workspaceRoot;
