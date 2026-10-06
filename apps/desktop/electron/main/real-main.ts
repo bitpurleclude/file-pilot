@@ -45,8 +45,21 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.testProviderConnection, async (_event, payload) => handlers.testProviderConnectionHandler(context, payload));
 };
 
+const hasValue = (value: string | undefined): value is string =>
+  value !== undefined && value.length > 0;
+
+// Test isolation overrides must be applied at module top level, before any
+// app.getPath call resolves a path from the shared default-app locations.
+const testUserDataDir = process.env.FILE_PILOT_USER_DATA_DIR;
+if (hasValue(testUserDataDir)) {
+  app.setPath("userData", testUserDataDir);
+}
+
 const appDataRoot = app.getPath("userData");
-const workspaceRoot = join(app.getPath("documents"), "File-Pilot-Workspace");
+const testWorkspaceRoot = process.env.FILE_PILOT_WORKSPACE_ROOT;
+const workspaceRoot = hasValue(testWorkspaceRoot)
+  ? testWorkspaceRoot
+  : join(app.getPath("documents"), "File-Pilot-Workspace");
 const appLogRoot = join(appDataRoot, "logs");
 
 const context: HandlerContext = {
@@ -63,6 +76,22 @@ const safeWriteMainLog = async (params: Parameters<typeof writeLogRecord>[1]): P
     // ignore logging failures in global handlers
   }
 };
+
+// appLogRoot is only meaningful after userData has been redirected, so this
+// audit record is written once the redirected log root has been resolved.
+if (hasValue(testUserDataDir) || hasValue(testWorkspaceRoot)) {
+  void safeWriteMainLog({
+    level: "info",
+    category: "audit",
+    code: "TEST_ISOLATION_ACTIVE",
+    message: "test isolation overrides are active",
+    traceId: crypto.randomUUID(),
+    details: {
+      userDataDir: appDataRoot,
+      workspaceRoot
+    }
+  });
+}
 
 process.on("uncaughtException", async (error) => {
   await safeWriteMainLog({

@@ -50,6 +50,7 @@ Run from repository root: `D:\code\windsurf\file-pilot`.
 - Lint all: `npm run lint`
 - Test all: `npm run test`
 - Test e2e: `npm run test:e2e`
+- Test e2e core gate: `npm run test:e2e:core`
 - List e2e tests: `npm run test:e2e:list`
 - Build all: `npm run build`
 - Build renderer only: `npm run build:renderer`
@@ -71,6 +72,7 @@ Run from repository root: `D:\code\windsurf\file-pilot`.
 ### Typical pre-commit verification
 
 - `npm run typecheck && npm run lint && npm run test && npm run build`
+- Packaging/e2e related changes: also run `npm run test:e2e:core` (startup/workflow/rollback core scenarios; mandatory for packaging or e2e changes, may be skipped for docs-only changes).
 
 ## 4) Packaging & Release Notes
 
@@ -165,6 +167,7 @@ Run from repository root: `D:\code\windsurf\file-pilot`.
 - Lint clean: `npm run lint`.
 - Tests pass: `npm run test`.
 - Build works: `npm run build`.
+- If packaging/e2e related: run `npm run test:e2e:core` (startup/workflow/rollback core scenarios; mandatory for packaging or e2e changes, may be skipped for docs-only changes).
 - If packaging-related: run `npm run dist:win`.
 - Update docs when behavior/config/contracts change.
 - Update-maintenance record is complete for this change:

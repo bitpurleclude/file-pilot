@@ -3,42 +3,73 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
+import { startLlmStub } from "./helpers/llm-stub.js";
+
+const STUB_API_KEY = "e2e-stub-key";
 
 test("whitelist + analyze + followup + dry-run workflow", async () => {
   const sandbox = await mkdtemp(join(process.cwd(), "tmp-file-pilot-e2e-"));
   const sample = join(sandbox, "sample.md");
   await writeFile(sample, "# hello low confidence workflow", "utf-8");
 
+  // 确定性 LLM 成功分类（本地 stub）：analyze 不再依赖真实网络/失败时延。
+  const stub = await startLlmStub();
   const electronApp = await launchElectronApp();
 
   try {
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
 
-    const result = await page.evaluate(async ({ sandboxDir, filePath }) => {
+    const result = await page.evaluate(async ({ sandboxDir, filePath, stubUrl, stubApiKey }) => {
       if (window.filePilotApi === undefined) {
         return { ok: false, reason: "missing-api" };
       }
+      const api = window.filePilotApi;
 
-      const saveWhitelist = await window.filePilotApi.saveWhitelist({ directories: [sandboxDir] });
+      const saveWhitelist = await api.saveWhitelist({ directories: [sandboxDir] });
+
+      // 把 active provider 指向本地 stub，保证 analyze 结果确定（Documents/StubProject，confidence 0.9）。
+      const settings = await api.getSettings();
+      if (!settings.ok) {
+        return { ok: false, reason: "get-settings-failed", detail: settings.error.message };
+      }
+      // providerConfigSchema 是 strict 的：从 getSettings 结果原样改字段后回传。
+      const activeProviderId = settings.data.llmProviders.activeProviderId;
+      const providers: LlmProviderConfig[] = settings.data.llmProviders.providers.map((provider) => (
+        provider.id === activeProviderId
+          ? { ...provider, baseUrl: stubUrl, apiKey: stubApiKey }
+          : provider
+      ));
+      const [firstProvider, ...restProviders] = providers;
+      if (firstProvider === undefined) {
+        return { ok: false, reason: "no-providers" };
+      }
+      const saved = await api.saveSettings({
+        llmProviders: { activeProviderId, providers: [firstProvider, ...restProviders] }
+      });
+      if (!saved.ok) {
+        return { ok: false, reason: "save-settings-failed", detail: saved.error.message };
+      }
+
       const sessionId = crypto.randomUUID();
-      const analyze = await window.filePilotApi.analyze({ sessionId, filePaths: [filePath] });
-      const followup = await window.filePilotApi.submitFollowup({
+      const analyze = await api.analyze({ sessionId, filePaths: [filePath] });
+      const followup = await api.submitFollowup({
         sessionId,
         answer: "追问批量项目",
         applyToAll: true
       });
-      const correction = await window.filePilotApi.saveCorrections({
+      const correction = await api.saveCorrections({
         sessionId,
         fileId: (analyze.ok ? (analyze.data as { items?: Array<{ item: { id: string } }> }).items?.[0]?.item.id : "") ?? "",
         purpose: "Study",
         project: "手工修正项目",
         saveAsRule: true
       });
-      const dryRun = await window.filePilotApi.apply({ sessionId, action: "move", dryRun: true });
-      const exportLogs = await window.filePilotApi.exportLogs({ anonymize: true });
-      const rules = await window.filePilotApi.listRules({ includeDisabled: true });
+      const dryRun = await api.apply({ sessionId, action: "move", dryRun: true });
+      const exportLogs = await api.exportLogs({ anonymize: true });
+      const rules = await api.listRules({ includeDisabled: true });
 
       return {
         saveWhitelist,
@@ -49,13 +80,13 @@ test("whitelist + analyze + followup + dry-run workflow", async () => {
         rules,
         exportLogs
       };
-    }, { sandboxDir: sandbox, filePath: sample });
+    }, { sandboxDir: sandbox, filePath: sample, stubUrl: stub.url, stubApiKey: STUB_API_KEY });
 
     expect(result).toHaveProperty("saveWhitelist.ok", true);
     expect(result).toHaveProperty("analyze.ok", true);
     expect(result).toHaveProperty("followup.ok", true);
     expect(result).toHaveProperty("correction.ok", true);
-    // The local fallback classifies the .md sample at confidence 0.7 (>= the
+    // The stub classifies the sample as llm-primary at confidence 0.9 (>= the
     // 0.6 ask threshold), so no follow-up is pending and the answer must not
     // touch any item — follow-up answers only apply to needsFollowUp items.
     expect(result).toHaveProperty("followup.data.updatedCount", 0);
@@ -66,6 +97,7 @@ test("whitelist + analyze + followup + dry-run workflow", async () => {
     expect(result).toHaveProperty("exportLogs.ok", true);
   } finally {
     await electronApp.close();
+    await stub.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });

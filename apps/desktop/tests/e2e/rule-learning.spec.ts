@@ -3,7 +3,11 @@ import { join } from "node:path";
 
 import { expect, test } from "@playwright/test";
 
+import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
+import { startLlmStub } from "./helpers/llm-stub.js";
+
+const STUB_API_KEY = "e2e-stub-key";
 
 test("manual correction can be saved as rule and reused in next analyze", async () => {
   const sandbox = await mkdtemp(join(process.cwd(), "tmp-file-pilot-rule-learning-"));
@@ -12,27 +16,54 @@ test("manual correction can be saved as rule and reused in next analyze", async 
   await writeFile(fileA, "chemistry notes A", "utf-8");
   await writeFile(fileB, "chemistry notes B", "utf-8");
 
+  // 本地 stub 提供确定性 LLM 分类，规则学习链路本身与分类来源无关；
+  // 接入 stub 只为消除真实网络依赖（默认 provider 指向 api.openai.com）。
+  const stub = await startLlmStub();
   const electronApp = await launchElectronApp();
 
   try {
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
 
-    const result = await page.evaluate(async ({ sandboxDir, firstFile, secondFile }) => {
+    const result = await page.evaluate(async ({ sandboxDir, firstFile, secondFile, stubUrl, stubApiKey }) => {
       if (window.filePilotApi === undefined) {
         return { ok: false, reason: "missing-api" };
       }
+      const api = window.filePilotApi;
 
-      await window.filePilotApi.saveWhitelist({ directories: [sandboxDir] });
+      await api.saveWhitelist({ directories: [sandboxDir] });
+
+      // 把 active provider 指向本地 stub，保证 analyze 不打真实外部 API。
+      const settings = await api.getSettings();
+      if (!settings.ok) {
+        return { ok: false, reason: "get-settings-failed", detail: settings.error.message };
+      }
+      // providerConfigSchema 是 strict 的：从 getSettings 结果原样改字段后回传。
+      const activeProviderId = settings.data.llmProviders.activeProviderId;
+      const providers: LlmProviderConfig[] = settings.data.llmProviders.providers.map((provider) => (
+        provider.id === activeProviderId
+          ? { ...provider, baseUrl: stubUrl, apiKey: stubApiKey }
+          : provider
+      ));
+      const [firstProvider, ...restProviders] = providers;
+      if (firstProvider === undefined) {
+        return { ok: false, reason: "no-providers" };
+      }
+      const saved = await api.saveSettings({
+        llmProviders: { activeProviderId, providers: [firstProvider, ...restProviders] }
+      });
+      if (!saved.ok) {
+        return { ok: false, reason: "save-settings-failed", detail: saved.error.message };
+      }
 
       const firstSessionId = crypto.randomUUID();
-      const analyze1 = await window.filePilotApi.analyze({ sessionId: firstSessionId, filePaths: [firstFile] });
+      const analyze1 = await api.analyze({ sessionId: firstSessionId, filePaths: [firstFile] });
       if (!analyze1.ok) {
         return { analyze1 };
       }
 
       const firstItemId = (analyze1.data as { items?: Array<{ item: { id: string } }> }).items?.[0]?.item.id ?? "";
-      const correction = await window.filePilotApi.saveCorrections({
+      const correction = await api.saveCorrections({
         sessionId: firstSessionId,
         fileId: firstItemId,
         purpose: "Study",
@@ -40,13 +71,13 @@ test("manual correction can be saved as rule and reused in next analyze", async 
         saveAsRule: true
       });
 
-      const analyze2 = await window.filePilotApi.analyze({
+      const analyze2 = await api.analyze({
         sessionId: crypto.randomUUID(),
         filePaths: [secondFile]
       });
 
       return { analyze1, correction, analyze2 };
-    }, { sandboxDir: sandbox, firstFile: fileA, secondFile: fileB });
+    }, { sandboxDir: sandbox, firstFile: fileA, secondFile: fileB, stubUrl: stub.url, stubApiKey: STUB_API_KEY });
 
     expect(result).toHaveProperty("analyze1.ok", true);
     expect(result).toHaveProperty("correction.ok", true);
@@ -55,7 +86,7 @@ test("manual correction can be saved as rule and reused in next analyze", async 
     expect(result).toHaveProperty("analyze2.data.items.0.classification.decisionSource", "rule");
   } finally {
     await electronApp.close();
+    await stub.close();
     await rm(sandbox, { recursive: true, force: true });
   }
 });
-

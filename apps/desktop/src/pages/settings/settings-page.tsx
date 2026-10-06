@@ -64,7 +64,10 @@ export const SettingsPage = ({
           throw new Error("IPC not ready");
         }
 
-        const result = await window.filePilotApi.saveSettings(nextSettings);
+        // whitelistDirectories is managed through the dedicated saveWhitelist
+        // channel and rejected by the strict saveSettings contract.
+        const { whitelistDirectories: _managedBySaveWhitelist, ...patchable } = nextSettings;
+        const result = await window.filePilotApi.saveSettings(patchable);
         if (!result.ok) {
           throw new Error(result.error.message);
         }
@@ -91,7 +94,10 @@ export const SettingsPage = ({
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-2xl font-bold">{t("settings.title")}</h1>
         <div className="flex items-center gap-2">
-          <span className={`text-sm ${saveState.status === "error" ? "text-destructive" : "text-muted-foreground"}`}>
+          <span
+            data-testid="settings-autosave-status"
+            className={`text-sm ${saveState.status === "error" ? "text-destructive" : "text-muted-foreground"}`}
+          >
             {t(statusMessageKey(saveState.status), saveState.errorMessage === undefined ? {} : { message: saveState.errorMessage })}
           </span>
           {saveState.status === "error" && (
@@ -105,7 +111,7 @@ export const SettingsPage = ({
               {t("settings.autoSave.retry")}
             </Button>
           )}
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" aria-label={t("settings.back")} data-testid="settings-back" onClick={onBack}>
             {t("settings.back")}
           </Button>
         </div>
@@ -115,11 +121,11 @@ export const SettingsPage = ({
 
       <Tabs defaultValue="general">
         <TabsList className="mb-4">
-          <TabsTrigger value="general">{t("settings.general.title")}</TabsTrigger>
-          <TabsTrigger value="classification">{t("settings.classification.title")}</TabsTrigger>
-          <TabsTrigger value="llm">{t("settings.llm.title")}</TabsTrigger>
-          <TabsTrigger value="logs">{t("settings.logsSettings.title")}</TabsTrigger>
-          <TabsTrigger value="advanced">{t("settings.advanced.title")}</TabsTrigger>
+          <TabsTrigger value="general" data-testid="settings-tab-general">{t("settings.general.title")}</TabsTrigger>
+          <TabsTrigger value="classification" data-testid="settings-tab-classification">{t("settings.classification.title")}</TabsTrigger>
+          <TabsTrigger value="llm" data-testid="settings-tab-llm">{t("settings.llm.title")}</TabsTrigger>
+          <TabsTrigger value="logs" data-testid="settings-tab-logs">{t("settings.logsSettings.title")}</TabsTrigger>
+          <TabsTrigger value="advanced" data-testid="settings-tab-advanced">{t("settings.advanced.title")}</TabsTrigger>
         </TabsList>
 
         <Card>

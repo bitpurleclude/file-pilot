@@ -120,6 +120,7 @@ npm run dev
 npm run typecheck
 npm run lint
 npm run test
+npm run test:e2e:core
 npm run test:e2e
 npm run test:qa
 
@@ -130,6 +131,7 @@ npm run dist:win
 
 补充：
 
+- e2e 核心门禁：`npm run test:e2e:core` 只跑 startup/workflow/rollback 三个核心场景，适合本地快速验证（打包/e2e 相关改动时必须，纯文档改动可跳过）
 - 查看 e2e 用例：`npm run test:e2e:list`
 - QA 性能专项：`npm run test:qa:perf`
 - QA 可靠性专项：`npm run test:qa:reliability`
@@ -166,8 +168,13 @@ npm run dist:win
 
 - Unit：纯逻辑（规则、阈值、模板渲染、迁移 runner 等）
 - Integration：仓储与 handler 合同
-- E2E：启动、流程、错误路径、规则学习、迁移、打包 smoke
+- E2E：启动、流程、错误路径、规则学习、迁移、回滚、隔离、LLM 成功链路、打包 smoke
 - QA：性能阈值与回滚可靠性阈值
+
+E2E 运行时保障：
+
+- 测试隔离：Playwright Electron 启动 helper 会自动注入 `FILE_PILOT_USER_DATA_DIR` / `FILE_PILOT_WORKSPACE_ROOT` 环境变量并指向临时目录，测试永不触碰 `%APPDATA%` 下真实 userData 与真实文件目录。
+- LLM stub：e2e 通过 `helpers/llm-stub.ts` 注入确定性 LLM 分类结果，不依赖外部 LLM 服务，保证场景可离线、可复现。
 
 参考文档：
 
