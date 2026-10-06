@@ -1,11 +1,14 @@
+import { existsSync } from "node:fs";
+
 import {
   checkUpdatesRequestSchema,
   downloadUpdateRequestSchema,
   installUpdateRequestSchema
 } from "../../../shared/ipc/contracts.js";
+import { isPathInsideRoot } from "../../../core/usecases/path-safety.js";
 import { checkForUpdates, downloadLatestInstaller } from "../../../infra/updater/check-updates.js";
 import { launchInstaller } from "../../../infra/updater/install-update.js";
-import { toIpcError, type IpcResult } from "../../../shared/errors/app-error.js";
+import { AppError, toIpcError, type IpcResult } from "../../../shared/errors/app-error.js";
 import type { DownloadedUpdateInfo, UpdateInfo } from "../../../shared/types/updater.js";
 import {
   type HandlerContext,
@@ -98,6 +101,19 @@ export const updaterHandlers = {
     const t = traceId();
     try {
       const req = installUpdateRequestSchema.parse(payload);
+      const updaterRoot = updaterRootPath(context);
+      if (!isPathInsideRoot(req.installerPath, updaterRoot) || !existsSync(req.installerPath)) {
+        throw new AppError(
+          "UPDATER_INSTALL_BLOCKED",
+          "Installer path must exist inside the managed updates directory",
+          "USER",
+          {
+            installerPath: req.installerPath,
+            updaterRoot
+          }
+        );
+      }
+
       await launchInstaller(req.installerPath);
 
       await safeWriteLog(context, {

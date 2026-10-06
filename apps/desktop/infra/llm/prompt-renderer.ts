@@ -19,54 +19,82 @@ const classifyInputSchema = z.object({
   })
 });
 
+const classifyBatchInputSchema = z.object({
+  items: z.array(z.object({
+    id: z.string().min(1),
+    name: z.string().min(1),
+    ext: z.string(),
+    size: z.number().nonnegative(),
+    keywords: z.array(z.string())
+  })).min(1)
+});
+
 const env = nunjucks.configure({
   autoescape: false,
   throwOnUndefined: true
 });
 
-const classifyTemplateName = "classify.v1.njk";
-
-const templatePaths = (): string[] => {
+const templatePaths = (templateName: string): string[] => {
   return [
-    join(__dirname, "templates", classifyTemplateName),
-    join(process.cwd(), "dist", "electron", "templates", classifyTemplateName),
-    join(process.cwd(), "apps", "desktop", "infra", "llm", "templates", classifyTemplateName)
+    join(__dirname, "templates", templateName),
+    join(process.cwd(), "dist", "electron", "templates", templateName),
+    join(process.cwd(), "apps", "desktop", "infra", "llm", "templates", templateName)
   ];
 };
 
-let cachedClassifyTemplate: string | null = null;
+const templateCache = new Map<string, string>();
 
-const loadClassifyTemplate = (): string => {
-  if (cachedClassifyTemplate !== null) {
-    return cachedClassifyTemplate;
+const loadTemplate = (templateName: string): string => {
+  const cached = templateCache.get(templateName);
+  if (cached !== undefined) {
+    return cached;
   }
 
   const checkedPaths: string[] = [];
 
-  for (const path of templatePaths()) {
+  for (const path of templatePaths(templateName)) {
     checkedPaths.push(path);
     if (!existsSync(path)) {
       continue;
     }
 
     try {
-      cachedClassifyTemplate = readFileSync(path, "utf-8");
-      return cachedClassifyTemplate;
+      const content = readFileSync(path, "utf-8");
+      templateCache.set(templateName, content);
+      return content;
     } catch (error) {
-      throw new AppError("SYSTEM_PROMPT_TEMPLATE_MISSING", "classify template file not found", "SYSTEM", {
+      throw new AppError("SYSTEM_PROMPT_TEMPLATE_MISSING", `${templateName} template file not found`, "SYSTEM", {
         cause: error instanceof Error ? error.message : String(error),
         checkedPaths
       });
     }
   }
 
+  throw new AppError("SYSTEM_PROMPT_TEMPLATE_MISSING", `${templateName} template file not found`, "SYSTEM", {
+    cause: "no template file found",
+    checkedPaths
+  });
+};
+
+const renderError = (error: unknown, message: string): AppError => {
+  if (error instanceof AppError) {
+    return error;
+  }
+
+  return new AppError("SYSTEM_PROMPT_RENDER_FAILED", message, "SYSTEM", {
+    cause: error instanceof Error ? error.message : String(error)
+  });
+};
+
+const renderValidatedTemplate = (
+  templateName: string,
+  variables: object,
+  failureMessage: string
+): string => {
   try {
-    throw new Error("no template file found");
+    return env.renderString(loadTemplate(templateName), variables);
   } catch (error) {
-    throw new AppError("SYSTEM_PROMPT_TEMPLATE_MISSING", "classify template file not found", "SYSTEM", {
-      cause: error instanceof Error ? error.message : String(error),
-      checkedPaths
-    });
+    throw renderError(error, failureMessage);
   }
 };
 
@@ -86,14 +114,30 @@ export const renderClassifyPrompt = (input: { item: FileItem; summary: ContentSu
       }
     });
 
-    return env.renderString(loadClassifyTemplate(), validated);
+    return renderValidatedTemplate("classify.v1.njk", validated, "failed to render classify prompt");
   } catch (error) {
-    if (error instanceof AppError) {
-      throw error;
-    }
+    throw renderError(error, "failed to render classify prompt");
+  }
+};
 
-    throw new AppError("SYSTEM_PROMPT_RENDER_FAILED", "failed to render classify prompt", "SYSTEM", {
-      cause: error instanceof Error ? error.message : String(error)
+export const CLASSIFY_BATCH_PROMPT_VERSION = "classify-batch.v1";
+
+export type ClassifyBatchInput = Array<{ item: FileItem; summary: ContentSummary }>;
+
+export const renderClassifyBatchPrompt = (items: ClassifyBatchInput): string => {
+  try {
+    const validated = classifyBatchInputSchema.parse({
+      items: items.map((entry) => ({
+        id: entry.item.id,
+        name: entry.item.name,
+        ext: entry.item.ext,
+        size: entry.item.size,
+        keywords: entry.summary.keywords
+      }))
     });
+
+    return renderValidatedTemplate("classify-batch.v1.njk", validated, "failed to render classify batch prompt");
+  } catch (error) {
+    throw renderError(error, "failed to render classify batch prompt");
   }
 };

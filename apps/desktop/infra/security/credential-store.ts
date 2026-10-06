@@ -1,6 +1,4 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname } from "node:path";
 
 interface EncryptedPayload {
   version: number;
@@ -40,15 +38,19 @@ const decrypt = (payload: EncryptedPayload): string => {
   return plain.toString("utf-8");
 };
 
-export const saveCredentialFallback = async (path: string, value: string): Promise<void> => {
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, JSON.stringify(encrypt(value), null, 2), "utf-8");
-};
+/**
+ * Encrypts a single value into a self-contained storage string
+ * (serialized AES-256-GCM payload). Machine-bound key, pure Node.
+ */
+export const encryptValue = (plain: string): string => JSON.stringify(encrypt(plain));
 
-export const readCredentialFallback = async (path: string): Promise<string | null> => {
+/**
+ * Decrypts a storage string produced by encryptValue.
+ * Returns null for malformed or tampered input (auth tag mismatch).
+ */
+export const decryptValue = (stored: string): string | null => {
   try {
-    const raw = await readFile(path, "utf-8");
-    const payload = JSON.parse(raw) as EncryptedPayload;
+    const payload = JSON.parse(stored) as EncryptedPayload;
     return decrypt(payload);
   } catch {
     return null;

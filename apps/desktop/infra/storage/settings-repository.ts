@@ -7,6 +7,10 @@ import {
 } from "../../shared/config/llm-providers.js";
 import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import type { AppSettings } from "../../shared/types/settings.js";
+import {
+  createFileCredentialStore,
+  type SettingsCredentialStore
+} from "../security/settings-credentials.js";
 import { readJsonFile, writeJsonFile } from "./json-store.js";
 
 const DEFAULT_PROVIDER_ID = "provider-default-openai";
@@ -38,6 +42,23 @@ export const defaultSettings: AppSettings = {
 };
 
 const settingsPath = (root: string): string => join(root, "settings.json");
+
+const credentialsDirPath = (root: string): string => join(root, "credentials");
+
+const defaultCredentialStore = (root: string): SettingsCredentialStore =>
+  createFileCredentialStore(credentialsDirPath(root));
+
+const hasValue = (value: string | null | undefined): value is string =>
+  value !== null && value !== undefined && value.length > 0;
+
+/**
+ * Produces a provider copy without the apiKey field so that settings files
+ * never contain plaintext credentials.
+ */
+const stripApiKey = (provider: LlmProviderConfig): LlmProviderConfig => {
+  const { apiKey: _apiKey, ...rest } = provider;
+  return rest as LlmProviderConfig;
+};
 
 interface LegacyLlmSettings {
   baseUrl?: string;
@@ -140,11 +161,50 @@ const buildProviders = (raw: RawSettings): {
   };
 };
 
-export const loadSettings = async (root: string): Promise<AppSettings> => {
+export const loadSettings = async (root: string, store?: SettingsCredentialStore): Promise<AppSettings> => {
+  const credentialStore = store ?? defaultCredentialStore(root);
   const path = settingsPath(root);
   const raw = await readJsonFile<RawSettings>(path, defaultSettings);
   const providers = buildProviders(raw);
   const { llm: _legacyLlm, llmProviders: _legacyProviders, ...rawWithoutLlm } = raw;
+
+  // Reconcile provider credentials: plaintext keys found in the file (legacy or
+  // pre-fix layout) move into the credential store, stored keys get injected
+  // into the in-memory settings. Credential failures never block loading.
+  let credentialsMigrated = false;
+  const keyedProviders: LlmProviderConfig[] = [];
+  for (const provider of providers.providers) {
+    let current = provider;
+    if (hasValue(provider.apiKey)) {
+      credentialsMigrated = true;
+      try {
+        await credentialStore.save(provider.apiKey, provider.id);
+      } catch {
+        // credential persistence must not block settings loading
+      }
+      current = stripApiKey(provider);
+    }
+    try {
+      const storedKey = await credentialStore.load(provider.id);
+      if (hasValue(storedKey)) {
+        current = { ...current, apiKey: storedKey };
+      }
+    } catch {
+      // missing credentials degrade to a provider without an API key
+    }
+    keyedProviders.push(current);
+  }
+
+  const firstKeyed = keyedProviders[0];
+  const llmProviders: AppSettings["llmProviders"] = firstKeyed === undefined
+    ? {
+      activeProviderId: providers.activeProviderId,
+      providers: providers.providers
+    }
+    : {
+      activeProviderId: providers.activeProviderId,
+      providers: [firstKeyed, ...keyedProviders.slice(1)]
+    };
 
   const settings: AppSettings = {
     ...defaultSettings,
@@ -157,19 +217,59 @@ export const loadSettings = async (root: string): Promise<AppSettings> => {
       ...defaultSettings.ruleLearning,
       ...raw.ruleLearning
     },
-    llmProviders: {
-      activeProviderId: providers.activeProviderId,
-      providers: providers.providers
-    }
+    llmProviders
   };
 
-  if (providers.migrated || raw.llm !== undefined) {
-    await writeJsonFile(path, settings);
+  if (providers.migrated || raw.llm !== undefined || credentialsMigrated) {
+    const firstStored = providers.providers[0];
+    const sanitizedLlmProviders: AppSettings["llmProviders"] = firstStored === undefined
+      ? llmProviders
+      : {
+        activeProviderId: providers.activeProviderId,
+        providers: [stripApiKey(firstStored), ...providers.providers.slice(1).map(stripApiKey)]
+      };
+    await writeJsonFile(path, { ...settings, llmProviders: sanitizedLlmProviders });
   }
 
   return settings;
 };
 
-export const saveSettings = async (root: string, settings: AppSettings): Promise<void> => {
-  await writeJsonFile(settingsPath(root), settings);
+export const saveSettings = async (
+  root: string,
+  settings: AppSettings,
+  store?: SettingsCredentialStore
+): Promise<void> => {
+  const credentialStore = store ?? defaultCredentialStore(root);
+  const providers = settings.llmProviders.providers;
+
+  const sanitizedProviders: LlmProviderConfig[] = [];
+  for (const provider of providers) {
+    if (hasValue(provider.apiKey)) {
+      try {
+        await credentialStore.save(provider.apiKey, provider.id);
+      } catch {
+        // credential persistence must not block settings persistence
+      }
+    } else {
+      try {
+        await credentialStore.remove(provider.id);
+      } catch {
+        // a stale credential entry must not block settings persistence
+      }
+    }
+    sanitizedProviders.push(stripApiKey(provider));
+  }
+
+  const firstSanitized = sanitizedProviders[0];
+  const sanitizedLlmProviders: AppSettings["llmProviders"] = firstSanitized === undefined
+    ? settings.llmProviders
+    : {
+      activeProviderId: settings.llmProviders.activeProviderId,
+      providers: [firstSanitized, ...sanitizedProviders.slice(1)]
+    };
+
+  await writeJsonFile(settingsPath(root), {
+    ...settings,
+    llmProviders: sanitizedLlmProviders
+  });
 };

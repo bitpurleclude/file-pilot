@@ -13,7 +13,7 @@ File-Pilot 是一个基于 Electron + React + TypeScript 的桌面文件整理�
 
 - 版本：`0.1.0`
 - 包管理器：`npm`
-- 打包目标：Windows NSIS（`electron-builder`）
+- 打包目标：Windows NSIS + Portable（`electron-builder`）
 - 桌面架构：`Renderer -> IPC Client -> Preload -> Main Handler -> UseCase -> Infra`
 
 ## 技术栈
@@ -133,6 +133,7 @@ npm run dist:win
 - 查看 e2e 用例：`npm run test:e2e:list`
 - QA 性能专项：`npm run test:qa:perf`
 - QA 可靠性专项：`npm run test:qa:reliability`
+- 打包：`npm run dist:win` 现在同时产出 NSIS 安装包与便携版（Portable）两种产物
 
 ## 数据与配置位置
 
@@ -180,10 +181,19 @@ npm run dist:win
 npm run dist:win
 ```
 
+`npm run dist:win` 现在同时产出安装版（NSIS）与便携版（Portable）两种包。
+
 产物默认在：
 
-- `release/File Pilot Setup 0.1.0.exe`
+- `release/File Pilot Setup 0.1.0.exe`（NSIS 安装包）
+- `release/File-Pilot-0.1.0-Portable.exe`（便携版，单文件免安装，双击直接运行）
 - `release/win-unpacked/File Pilot.exe`
+
+便携版说明：
+
+- 无需安装，双击 `File-Pilot-0.1.0-Portable.exe` 即可直接运行。
+- 便携版仅指程序本身免安装；运行时数据（数据库 / 设置 / 日志）仍保存在用户目录 `%APPDATA%\File Pilot`（Electron `userData`），不会随程序文件携带。
+- 因此换机器运行便携版不会自动带数据；如需迁移，需手动拷贝 `%APPDATA%\File Pilot` 下的数据目录。
 
 当前阶段签名策略：
 

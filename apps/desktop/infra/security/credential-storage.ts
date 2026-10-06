@@ -1,227 +1,204 @@
-import { safeStorage } from "electron";
-import * as fs from "node:fs";
-import * as path from "node:path";
-import * as crypto from "node:crypto";
-import { app } from "electron";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+import { join } from "node:path";
+
+import { decryptValue, encryptValue } from "./credential-store.js";
 
 /**
- * 凭据存储模块
- * 
- * 策略：
- * 1. 优先使用 Electron safeStorage API（系统级加密）
- * 2. 不可用时回退到 AES-GCM 本地加密文件
- * 3. 使用机器绑定密钥（基于 machineId）
- * 4. 支持密钥版本管理
+ * Electron-aware credential file storage.
+ *
+ * Strategy:
+ * 1. Prefer Electron safeStorage (OS-level encryption) when available.
+ * 2. Fall back to the pure Node AES-256-GCM implementation in credential-store.ts.
+ * 3. The credentials file lives under an explicit, injectable credentialsDir
+ *    (no dependency on app.getPath at import or call time), and keeps one
+ *    encrypted record per provider id so multiple providers can persist keys
+ *    side by side via read-modify-write.
+ * 4. The file payload is versioned for future migrations.
+ *
+ * This module is safe to import and call from a pure Node runtime (vitest):
+ * the electron module is resolved lazily via dynamic import inside a try/catch,
+ * so a missing or stub electron implementation degrades to the AES-GCM fallback.
  */
 
-const CREDENTIAL_VERSION = 1;
-const ALGORITHM = "aes-256-gcm";
-const KEY_LENGTH = 32;
-const IV_LENGTH = 16;
-const AUTH_TAG_LENGTH = 16;
+const CREDENTIALS_FILE_VERSION = 1;
+const CREDENTIALS_FILE_NAME = "credentials.json";
 
-/**
- * 加密凭据数据结构
- */
-interface EncryptedCredential {
-  version: number;
-  method: "safeStorage" | "aes-gcm";
-  data: string;
-  iv?: string;
-  authTag?: string;
+export type CredentialEncryptionMethod = "safeStorage" | "aes-gcm";
+
+interface SafeStorageLike {
+  isEncryptionAvailable(): boolean;
+  encryptString(plaintext: string): Buffer;
+  decryptString(buffer: Buffer): string;
 }
 
-/**
- * 获取凭据存储文件路径
- */
-const getCredentialFilePath = (): string => {
-  const userDataPath = app.getPath("userData");
-  return path.join(userDataPath, "credentials", "encrypted.json");
-};
+interface CredentialRecord {
+  method: CredentialEncryptionMethod;
+  /** safeStorage: base64 ciphertext; aes-gcm: serialized AES-256-GCM payload. */
+  data: string;
+}
 
-/**
- * 获取机器绑定密钥（用于 AES-GCM 回退方案）
- */
-const getMachineKey = (): Buffer => {
-  // 使用 app.getPath("userData") 作为机器标识的一部分
-  // 在生产环境中，可以结合更多机器特征（如 MAC 地址、CPU ID 等）
-  const userDataPath = app.getPath("userData");
-  const machineId = crypto.createHash("sha256").update(userDataPath).digest();
-  
-  // 派生固定长度的密钥
-  return crypto.pbkdf2Sync(machineId, "file-pilot-salt", 100000, KEY_LENGTH, "sha256");
-};
+interface CredentialFilePayload {
+  version: number;
+  credentials: Record<string, CredentialRecord>;
+}
 
-/**
- * 使用 safeStorage 加密
- */
-const encryptWithSafeStorage = (plaintext: string): string => {
-  const buffer = safeStorage.encryptString(plaintext);
-  return buffer.toString("base64");
-};
+export interface CredentialStorage {
+  save(apiKey: string, providerId: string): Promise<void>;
+  load(providerId: string): Promise<string | null>;
+  remove(providerId: string): Promise<void>;
+  getEncryptionMethod(): Promise<CredentialEncryptionMethod>;
+}
 
-/**
- * 使用 safeStorage 解密
- */
-const decryptWithSafeStorage = (encrypted: string): string => {
-  const buffer = Buffer.from(encrypted, "base64");
-  return safeStorage.decryptString(buffer);
-};
+const emptyPayload = (): CredentialFilePayload => ({
+  version: CREDENTIALS_FILE_VERSION,
+  credentials: {}
+});
 
-/**
- * 使用 AES-GCM 加密（回退方案）
- */
-const encryptWithAesGcm = (plaintext: string): { data: string; iv: string; authTag: string } => {
-  const key = getMachineKey();
-  const iv = crypto.randomBytes(IV_LENGTH);
-  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
-  
-  let encrypted = cipher.update(plaintext, "utf8", "base64");
-  encrypted += cipher.final("base64");
-  
-  const authTag = cipher.getAuthTag();
-  
-  return {
-    data: encrypted,
-    iv: iv.toString("base64"),
-    authTag: authTag.toString("base64")
-  };
-};
-
-/**
- * 使用 AES-GCM 解密（回退方案）
- */
-const decryptWithAesGcm = (encrypted: string, ivBase64: string, authTagBase64: string): string => {
-  const key = getMachineKey();
-  const iv = Buffer.from(ivBase64, "base64");
-  const authTag = Buffer.from(authTagBase64, "base64");
-  
-  const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
-  decipher.setAuthTag(authTag);
-  
-  let decrypted = decipher.update(encrypted, "base64", "utf8");
-  decrypted += decipher.final("utf8");
-  
-  return decrypted;
-};
-
-/**
- * 保存加密凭据到文件
- */
-const saveToFile = (credential: EncryptedCredential): void => {
-  const filePath = getCredentialFilePath();
-  const dir = path.dirname(filePath);
-  
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+const isSafeStorageLike = (value: unknown): value is SafeStorageLike => {
+  if (typeof value !== "object" || value === null) {
+    return false;
   }
-  
-  fs.writeFileSync(filePath, JSON.stringify(credential, null, 2), "utf8");
+  const candidate = value as Partial<SafeStorageLike>;
+  return (
+    typeof candidate.isEncryptionAvailable === "function"
+    && typeof candidate.encryptString === "function"
+    && typeof candidate.decryptString === "function"
+  );
 };
 
 /**
- * 从文件读取加密凭据
+ * Resolves the Electron safeStorage API without breaking pure Node runtimes:
+ * under vitest `import("electron")` either resolves to the npm stub (which has
+ * no safeStorage) or rejects entirely; both paths return null and callers
+ * degrade to the AES-GCM fallback. Under the Electron main process the real
+ * safeStorage module is returned when OS-level encryption is available.
  */
-const loadFromFile = (): EncryptedCredential | null => {
-  const filePath = getCredentialFilePath();
-  
-  if (!fs.existsSync(filePath)) {
-    return null;
-  }
-  
+const probeSafeStorage = async (): Promise<SafeStorageLike | null> => {
   try {
-    const content = fs.readFileSync(filePath, "utf8");
-    return JSON.parse(content) as EncryptedCredential;
-  } catch {
-    return null;
-  }
-};
-
-/**
- * 存储凭据（自动选择最佳加密方式）
- */
-export const storeCredential = (key: string, value: string): void => {
-  const payload = JSON.stringify({ [key]: value });
-  
-  // 优先使用 safeStorage
-  if (safeStorage.isEncryptionAvailable()) {
-    const encrypted = encryptWithSafeStorage(payload);
-    saveToFile({
-      version: CREDENTIAL_VERSION,
-      method: "safeStorage",
-      data: encrypted
-    });
-  } else {
-    // 回退到 AES-GCM
-    const { data, iv, authTag } = encryptWithAesGcm(payload);
-    saveToFile({
-      version: CREDENTIAL_VERSION,
-      method: "aes-gcm",
-      data,
-      iv,
-      authTag
-    });
-  }
-};
-
-/**
- * 读取凭据
- */
-export const retrieveCredential = (key: string): string | null => {
-  const credential = loadFromFile();
-  
-  if (credential === null) {
-    return null;
-  }
-  
-  try {
-    let payload: string;
-    
-    if (credential.method === "safeStorage") {
-      payload = decryptWithSafeStorage(credential.data);
-    } else if (credential.method === "aes-gcm") {
-      if (credential.iv === undefined || credential.authTag === undefined) {
-        return null;
+    const electronModule = (await import("electron")) as unknown as {
+      safeStorage?: unknown;
+      default?: { safeStorage?: unknown };
+    };
+    const candidates: unknown[] = [electronModule.safeStorage, electronModule.default?.safeStorage];
+    for (const candidate of candidates) {
+      if (!isSafeStorageLike(candidate)) {
+        continue;
       }
-      payload = decryptWithAesGcm(credential.data, credential.iv, credential.authTag);
-    } else {
+      if (candidate.isEncryptionAvailable()) {
+        return candidate;
+      }
       return null;
     }
-    
-    const parsed = JSON.parse(payload) as Record<string, string>;
-    return parsed[key] ?? null;
+    return null;
   } catch {
     return null;
   }
 };
 
-/**
- * 删除凭据
- */
-export const deleteCredential = (): void => {
-  const filePath = getCredentialFilePath();
-  
-  if (fs.existsSync(filePath)) {
-    fs.unlinkSync(filePath);
+const readPayload = async (filePath: string): Promise<CredentialFilePayload> => {
+  try {
+    const raw = await readFile(filePath, "utf-8");
+    const parsed = JSON.parse(raw) as Partial<CredentialFilePayload> | null;
+    if (
+      parsed === null
+      || parsed.version !== CREDENTIALS_FILE_VERSION
+      || parsed.credentials === undefined
+      || parsed.credentials === null
+      || typeof parsed.credentials !== "object"
+    ) {
+      return emptyPayload();
+    }
+    return { version: CREDENTIALS_FILE_VERSION, credentials: parsed.credentials };
+  } catch {
+    return emptyPayload();
   }
 };
 
-/**
- * 检查加密是否可用
- */
-export const isEncryptionAvailable = (): boolean => {
-  return safeStorage.isEncryptionAvailable();
+const writePayload = async (
+  credentialsDir: string,
+  filePath: string,
+  payload: CredentialFilePayload
+): Promise<void> => {
+  await mkdir(credentialsDir, { recursive: true });
+  // Atomic write via temp file + rename: a crash or concurrent save must never
+  // leave a truncated credentials file behind (it would read back as empty and
+  // the next save would wipe the remaining provider keys).
+  const tempPath = `${filePath}.${crypto.randomUUID()}.tmp`;
+  await writeFile(tempPath, JSON.stringify(payload, null, 2), "utf-8");
+  try {
+    await rename(tempPath, filePath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
 };
 
-/**
- * 获取当前加密方法
- */
-export const getCurrentEncryptionMethod = (): "safeStorage" | "aes-gcm" | "none" => {
-  const credential = loadFromFile();
-  
-  if (credential === null) {
-    return "none";
+const encryptRecord = async (plaintext: string): Promise<CredentialRecord> => {
+  const safeStorage = await probeSafeStorage();
+  if (safeStorage !== null) {
+    return { method: "safeStorage", data: safeStorage.encryptString(plaintext).toString("base64") };
   }
-  
-  return credential.method;
+  return { method: "aes-gcm", data: encryptValue(plaintext) };
+};
+
+const decryptRecord = async (record: CredentialRecord): Promise<string | null> => {
+  try {
+    if (record.method === "safeStorage") {
+      const safeStorage = await probeSafeStorage();
+      if (safeStorage === null) {
+        return null;
+      }
+      return safeStorage.decryptString(Buffer.from(record.data, "base64"));
+    }
+    if (record.method === "aes-gcm") {
+      return decryptValue(record.data);
+    }
+    return null;
+  } catch {
+    return null;
+  }
+};
+
+export const createCredentialFileStorage = (credentialsDir: string): CredentialStorage => {
+  const filePath = join(credentialsDir, CREDENTIALS_FILE_NAME);
+
+  const persistWithoutProvider = async (providerId: string): Promise<void> => {
+    const payload = await readPayload(filePath);
+    if (payload.credentials[providerId] === undefined) {
+      return;
+    }
+    delete payload.credentials[providerId];
+    await writePayload(credentialsDir, filePath, payload);
+  };
+
+  const save = async (apiKey: string, providerId: string): Promise<void> => {
+    if (apiKey.length === 0) {
+      await persistWithoutProvider(providerId);
+      return;
+    }
+    const record = await encryptRecord(apiKey);
+    const payload = await readPayload(filePath);
+    payload.credentials[providerId] = record;
+    await writePayload(credentialsDir, filePath, payload);
+  };
+
+  const load = async (providerId: string): Promise<string | null> => {
+    const payload = await readPayload(filePath);
+    const record = payload.credentials[providerId];
+    if (record === undefined) {
+      return null;
+    }
+    return decryptRecord(record);
+  };
+
+  const remove = async (providerId: string): Promise<void> => {
+    await persistWithoutProvider(providerId);
+  };
+
+  const getEncryptionMethod = async (): Promise<CredentialEncryptionMethod> => {
+    const safeStorage = await probeSafeStorage();
+    return safeStorage !== null ? "safeStorage" : "aes-gcm";
+  };
+
+  return { save, load, remove, getEncryptionMethod };
 };

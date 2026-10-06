@@ -60,7 +60,7 @@ test("app starts and preload API is injected", async () => {
     "updateRule"
   ]);
 
-  await expect(page.getByRole("heading", { name: "File-Pilot M2/M3" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "File-Pilot" })).toBeVisible();
 
   await electronApp.close();
 });

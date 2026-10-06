@@ -24,7 +24,8 @@ import {
   replaceSessionItemsSqlite,
   upsertSessionSqlite
 } from "../../../infra/storage/sqlite/repositories/sessions-repository.js";
-import { toIpcError, type IpcResult } from "../../../shared/errors/app-error.js";
+import { EXECUTOR_CONFIG } from "../../../shared/config/executor.config.js";
+import { AppError, toIpcError, type IpcResult } from "../../../shared/errors/app-error.js";
 import type { ClassificationRule } from "../../../shared/types/rules.js";
 import type { ExecutionResult, ProcessedSessionItem } from "../../../shared/types/workflow.js";
 import { confidenceBandOf } from "../../../core/usecases/classify-files.js";
@@ -39,6 +40,18 @@ import {
   toDecisionRecords,
   traceId
 } from "./shared.js";
+
+const READ_ONLY_MODE_ERROR_CODE = "USER_READ_ONLY_MODE";
+
+const assertNotReadOnly = (settings: { readOnlyMode: boolean }, operation: string): void => {
+  if (settings.readOnlyMode) {
+    throw new AppError(
+      READ_ONLY_MODE_ERROR_CODE,
+      `只读模式下禁止执行该操作: ${operation}`,
+      "USER"
+    );
+  }
+};
 
 const toFollowUpQuestions = (
   items: ProcessedSessionItem[]
@@ -66,6 +79,7 @@ export const sessionHandlers = {
       const req = analyzeRequestSchema.parse(payload);
       const db = openSqliteDatabase(sqlitePath(context));
       const settings = await loadSettings(settingsRootPath(context));
+      assertNotReadOnly(settings, "analyze");
       const rules = listRulesSqlite(db, { includeDisabled: false });
 
       const session = updateSessionStatus(createSession({ itemIds: [], sessionId: req.sessionId }), "analyzing");
@@ -156,8 +170,23 @@ export const sessionHandlers = {
         throw new Error("session not found");
       }
 
+      const settings = await loadSettings(settingsRootPath(context));
+      if (!req.dryRun) {
+        assertNotReadOnly(settings, "apply");
+      }
+
       const results = await applySession(session.executions.map((item) => item.plan), req.dryRun, req.action);
-      const updated = withExecutions(updateSessionStatus(session, req.dryRun ? "planned" : "done"), results);
+      const executedCount = results.filter((item) => item.executed).length;
+      // Only hard errors count as failures — `skipped:target-exists` is an
+      // expected outcome and must not keep the session stuck in "planned".
+      const failedCount = req.dryRun
+        ? 0
+        : results.filter((item) => !item.executed && item.reason?.startsWith("error:")).length;
+      const skippedCount = req.dryRun
+        ? 0
+        : results.filter((item) => !item.executed && item.reason?.startsWith("skipped:")).length;
+      const nextStatus = req.dryRun || failedCount > 0 ? "planned" : "done";
+      const updated = withExecutions(updateSessionStatus(session, nextStatus), results);
       upsertSessionSqlite(db, updated);
 
       await safeWriteLog(context, {
@@ -167,7 +196,7 @@ export const sessionHandlers = {
         message: "apply completed",
         traceId: t,
         sessionId: req.sessionId,
-        details: { executedCount: results.filter((r) => r.executed).length }
+        details: { executedCount, failedCount, skippedCount, dryRun: req.dryRun }
       });
 
       return { ok: true, data: updated };
@@ -253,7 +282,9 @@ export const sessionHandlers = {
       const now = new Date();
       let updatedCount = 0;
       const nextItems: ProcessedSessionItem[] = items.map((item): ProcessedSessionItem => {
-        if (!item.needsFollowUp && !req.applyToAll) {
+        // applyToAll means "apply the answer to every pending follow-up item";
+        // items that never needed follow-up must keep their original classification.
+        if (!item.needsFollowUp) {
           return item;
         }
 
@@ -377,7 +408,10 @@ export const sessionHandlers = {
         }
 
         updatedCount += 1;
-        const confidence = Math.max(item.classification.confidence, 0.95);
+        const confidence = Math.max(
+          item.classification.confidence,
+          EXECUTOR_CONFIG.manualCorrectionConfidence
+        );
         const classification = {
           ...item.classification,
           purpose: req.purpose,

@@ -2,14 +2,18 @@ import type { ClassificationRule } from "../../shared/types/rules.js";
 import type { AppSettings } from "../../shared/types/settings.js";
 import type {
   Classification,
+  ContentSummary,
   ExecuteAction,
+  FileItem,
   FollowUpQuestion,
   PlacementPlan,
   ProcessedSessionItem
 } from "../../shared/types/workflow.js";
+import { AppError } from "../../shared/errors/app-error.js";
 import { analyzeFiles } from "./analyze-files.js";
 import { classifyWithFallback, confidenceBandOf, shouldAskFollowUp, type LlmClassifier } from "./classify-files.js";
 import { executePlans, rollbackExecutions } from "./execute-and-rollback.js";
+import { assertPathInsideRoot } from "./path-safety.js";
 import { buildPlacementPlan } from "./plan-placement.js";
 import { selectBestMatchingRule } from "./rule-engine.js";
 import { assertPathInWhitelist } from "./whitelist.js";
@@ -20,6 +24,12 @@ export interface ProcessSessionResult {
   plans: PlacementPlan[];
   needsFollowUp: boolean;
   followUpQuestions: FollowUpQuestion[];
+}
+
+export interface BatchLlmClassifier extends LlmClassifier {
+  classifyMany?(
+    inputs: Array<{ item: FileItem; summary: ContentSummary }>
+  ): Promise<Array<Classification | null>>;
 }
 
 const toFollowUpQuestion = (item: ProcessedSessionItem): FollowUpQuestion => {
@@ -42,24 +52,64 @@ export const processSession = async (params: {
   }
 
   const analyzed = await analyzeFiles(params.filePaths);
-  const items: ProcessedSessionItem[] = [];
 
-  for (const result of analyzed) {
+  const classifications: Array<Classification | null> = analyzed.map((result) => {
     const matched = selectBestMatchingRule(params.rules, {
       item: result.item,
       summary: result.summary
     });
 
-    const classification = matched === null
-      ? await classifyWithFallback(params.classifier, result.item, result.summary)
-      : {
-          purpose: matched.rule.purpose,
-          project: matched.rule.project,
-          confidence: matched.score,
-          confidenceBand: confidenceBandOf(matched.score),
-          reasons: [`matched-rule:${matched.rule.id}`],
-          decisionSource: "rule" as const
-        };
+    if (matched === null) {
+      return null;
+    }
+
+    return {
+      purpose: matched.rule.purpose,
+      project: matched.rule.project,
+      confidence: matched.score,
+      confidenceBand: confidenceBandOf(matched.score),
+      reasons: [`matched-rule:${matched.rule.id}`],
+      decisionSource: "rule" as const
+    };
+  });
+
+  const pending = analyzed
+    .map((result, index) => ({ result, index }))
+    .filter((entry) => classifications[entry.index] === null);
+
+  const batchClassifier: BatchLlmClassifier = params.classifier;
+  const classifyMany = typeof batchClassifier.classifyMany === "function"
+    ? batchClassifier.classifyMany
+    : undefined;
+
+  if (classifyMany === undefined) {
+    for (const entry of pending) {
+      classifications[entry.index] = await classifyWithFallback(
+        params.classifier,
+        entry.result.item,
+        entry.result.summary
+      );
+    }
+  } else if (pending.length > 0) {
+    const batchResults = await classifyMany(
+      pending.map((entry) => ({ item: entry.result.item, summary: entry.result.summary }))
+    );
+
+    for (const [offset, entry] of pending.entries()) {
+      const batchResult = batchResults[offset];
+      classifications[entry.index] = batchResult ?? (
+        await classifyWithFallback(params.classifier, entry.result.item, entry.result.summary)
+      );
+    }
+  }
+
+  const items: ProcessedSessionItem[] = [];
+
+  for (const [index, result] of analyzed.entries()) {
+    const classification = classifications[index];
+    if (classification === null || classification === undefined) {
+      throw new AppError("SYSTEM_UNKNOWN", `分类结果缺失: ${result.item.name}`, "SYSTEM");
+    }
 
     const plan = buildPlacementPlan({
       fileId: result.item.id,
@@ -68,6 +118,7 @@ export const processSession = async (params: {
       workspaceRoot: params.workspaceRoot,
       now: params.now
     });
+    assertPathInsideRoot(plan.targetPath, params.workspaceRoot);
 
     const needsFollowUp = shouldAskFollowUp(classification);
     items.push({
@@ -106,4 +157,3 @@ export const applySession = async (
 export const rollbackSession = async (executions: Awaited<ReturnType<typeof applySession>>) => {
   return rollbackExecutions(executions);
 };
-

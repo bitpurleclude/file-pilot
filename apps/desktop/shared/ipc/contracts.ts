@@ -126,6 +126,21 @@ export const saveSettingsRequestSchema = z.object({
     highConfidenceMin: z.number().min(0).max(1),
     mediumConfidenceMin: z.number().min(0).max(1),
     askThreshold: z.number().min(0).max(1)
+  }).superRefine((value, ctx) => {
+    if (value.askThreshold > value.mediumConfidenceMin) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "askThreshold must be less than or equal to mediumConfidenceMin",
+        path: ["askThreshold"]
+      });
+    }
+    if (value.mediumConfidenceMin > value.highConfidenceMin) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "mediumConfidenceMin must be less than or equal to highConfidenceMin",
+        path: ["mediumConfidenceMin"]
+      });
+    }
   }).optional(),
   ruleLearning: z.object({
     enabled: z.boolean(),

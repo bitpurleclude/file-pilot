@@ -85,4 +85,45 @@ describe("saveSettingsHandler", () => {
     });
     expect(emptyProviders.ok).toBe(false);
   });
+
+  it("accepts consistent classification thresholds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-save-settings-thresholds-"));
+    tempDirs.push(root);
+
+    const context = createContext(root);
+    const result = await handlers.saveSettingsHandler(context, {
+      classification: {
+        askThreshold: 0.6,
+        mediumConfidenceMin: 0.6,
+        highConfidenceMin: 0.85
+      }
+    });
+
+    expect(result.ok).toBe(true);
+  });
+
+  it("rejects contradictory classification thresholds", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-save-settings-bad-thresholds-"));
+    tempDirs.push(root);
+
+    const context = createContext(root);
+
+    const askAboveMedium = await handlers.saveSettingsHandler(context, {
+      classification: {
+        askThreshold: 0.9,
+        mediumConfidenceMin: 0.6,
+        highConfidenceMin: 0.85
+      }
+    });
+    expect(askAboveMedium.ok).toBe(false);
+
+    const mediumAboveHigh = await handlers.saveSettingsHandler(context, {
+      classification: {
+        askThreshold: 0.5,
+        mediumConfidenceMin: 0.9,
+        highConfidenceMin: 0.85
+      }
+    });
+    expect(mediumAboveHigh.ok).toBe(false);
+  });
 });

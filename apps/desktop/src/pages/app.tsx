@@ -59,7 +59,7 @@ export const App = (): JSX.Element => {
   const [latestVersion, setLatestVersion] = useState<string | null>(null);
   const [downloadedInstallerPath, setDownloadedInstallerPath] = useState<string | null>(null);
   const [analyzeData, setAnalyzeData] = useState<AnalyzeData | null>(null);
-  const [followupAnswer, setFollowupAnswer] = useState<string>("Default Project");
+  const [followupAnswer, setFollowupAnswer] = useState<string>("");
   const [correctionPurpose, setCorrectionPurpose] = useState<Purpose>("Documents");
   const [correctionProject, setCorrectionProject] = useState<string>("Default Project");
   const [saveAsRule, setSaveAsRule] = useState<boolean>(true);
@@ -89,7 +89,6 @@ export const App = (): JSX.Element => {
       const settingsResult = await window.filePilotApi.getSettings();
       if (settingsResult.ok) {
         setAppSettings(settingsResult.data);
-        setReadOnlyMode(settingsResult.data.readOnlyMode);
         setReadOnlyMode(settingsResult.data.readOnlyMode);
 
         if (settingsResult.data.language !== undefined) {
@@ -251,14 +250,21 @@ export const App = (): JSX.Element => {
     }
 
     const result = await window.filePilotApi.saveWhitelist({ directories });
-    if (result.ok) {
-      setReadOnlyMode(false);
-      setWizardVisible(false);
-      setMessage(t("app.whitelistSaved"));
+    if (!result.ok) {
+      setMessage(t("app.whitelistFailed", { message: result.error.message }));
       return;
     }
 
-    setMessage(t("app.whitelistFailed", { message: result.error.message }));
+    // Whitelist saving no longer disables read-only mode implicitly in the main process.
+    const readOnlyResult = await window.filePilotApi.setReadOnlyMode({ enabled: false });
+    if (!readOnlyResult.ok) {
+      setMessage(t("app.readOnlyDisableFailed", { message: readOnlyResult.error.message }));
+      return;
+    }
+
+    setReadOnlyMode(false);
+    setWizardVisible(false);
+    setMessage(t("app.whitelistSaved"));
   };
 
   const onClearLogs = async (): Promise<void> => {
@@ -319,7 +325,16 @@ export const App = (): JSX.Element => {
       return;
     }
 
-    const result = await window.filePilotApi.apply({ sessionId, action: "move", dryRun: true });
+    if (analyzeData === null) {
+      setMessage(t("app.dryRunRequiresAnalyze"));
+      return;
+    }
+
+    const result = await window.filePilotApi.apply({
+      sessionId: analyzeData.sessionId,
+      action: "move",
+      dryRun: true
+    });
     setMessage(result.ok ? t("app.dryRunCompleted") : t("app.dryRunFailed", { message: result.error.message }));
   };
 
@@ -333,7 +348,12 @@ export const App = (): JSX.Element => {
       return;
     }
 
-    const result = await window.filePilotApi.rollback({ sessionId });
+    if (analyzeData === null) {
+      setMessage(t("app.rollbackRequiresAnalyze"));
+      return;
+    }
+
+    const result = await window.filePilotApi.rollback({ sessionId: analyzeData.sessionId });
     setMessage(result.ok ? t("app.rollbackCompleted") : t("app.rollbackFailed", { message: result.error.message }));
   };
 
@@ -373,7 +393,11 @@ export const App = (): JSX.Element => {
     setDownloadedInstallerPath(null);
 
     const updateMessage = resolveUpdateCheckMessage(result.data, updateChannel);
-    setMessage(t(updateMessage.key, updateMessage.params));
+    setMessage(
+      updateMessage.params === undefined
+        ? t(updateMessage.key)
+        : t(updateMessage.key, updateMessage.params)
+    );
   };
 
   const onDownloadUpdate = async (): Promise<void> => {
@@ -565,8 +589,6 @@ export const App = (): JSX.Element => {
           {downloadedInstallerPath === null ? ` ${t("status.notDownloaded")}` : ` ${t("status.downloaded")}`}
         </p>
       )}
-
-      <pre>{JSON.stringify({ sessionId, filePaths, analyzeData }, null, 2)}</pre>
     </main>
   );
 };

@@ -1,3 +1,5 @@
+import { join } from "node:path";
+
 import {
   clearLogsRequestSchema,
   exportLogsRequestSchema,
@@ -10,6 +12,10 @@ import {
   testProviderConnectionRequestSchema
 } from "../../../shared/ipc/contracts.js";
 import { loadSettings, saveSettings } from "../../../infra/storage/settings-repository.js";
+import {
+  createFileCredentialStore,
+  type SettingsCredentialStore
+} from "../../../infra/security/settings-credentials.js";
 import { buildLogExportPayload, createDefaultLogExportOptions } from "../../../core/usecases/export-logs.js";
 import { normalizeWhitelist } from "../../../core/usecases/whitelist.js";
 import { persistLogExportJson } from "../../../infra/fs/log-export-file-repository.js";
@@ -29,6 +35,9 @@ import {
   traceId
 } from "./shared.js";
 import type { AppSettings } from "../../../shared/types/settings.js";
+
+const credentialsStoreFor = (context: HandlerContext): SettingsCredentialStore =>
+  createFileCredentialStore(join(settingsRootPath(context), "credentials"));
 
 export const systemHandlers = {
   exportLogs: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
@@ -90,9 +99,11 @@ export const systemHandlers = {
   saveWhitelist: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
     try {
       const req = saveWhitelistRequestSchema.parse(payload);
-      const settings = await loadSettings(settingsRootPath(context));
-      const next = { ...settings, whitelistDirectories: normalizeWhitelist(req.directories), readOnlyMode: false };
-      await saveSettings(settingsRootPath(context), next);
+      const root = settingsRootPath(context);
+      const store = credentialsStoreFor(context);
+      const settings = await loadSettings(root, store);
+      const next = { ...settings, whitelistDirectories: normalizeWhitelist(req.directories) };
+      await saveSettings(root, next, store);
       return { ok: true, data: next };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
@@ -102,9 +113,11 @@ export const systemHandlers = {
   setReadOnlyMode: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
     try {
       const req = setReadOnlyModeRequestSchema.parse(payload);
-      const settings = await loadSettings(settingsRootPath(context));
+      const root = settingsRootPath(context);
+      const store = credentialsStoreFor(context);
+      const settings = await loadSettings(root, store);
       const next = { ...settings, readOnlyMode: req.enabled };
-      await saveSettings(settingsRootPath(context), next);
+      await saveSettings(root, next, store);
       return { ok: true, data: next };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
@@ -114,7 +127,7 @@ export const systemHandlers = {
   getSettings: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
     try {
       getSettingsRequestSchema.parse(payload);
-      const settings = await loadSettings(settingsRootPath(context));
+      const settings = await loadSettings(settingsRootPath(context), credentialsStoreFor(context));
       return { ok: true, data: settings };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
@@ -171,7 +184,9 @@ export const systemHandlers = {
   saveSettingsHandler: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
     try {
       const req = saveSettingsRequestSchema.parse(payload);
-      const current = await loadSettings(settingsRootPath(context));
+      const root = settingsRootPath(context);
+      const store = credentialsStoreFor(context);
+      const current = await loadSettings(root, store);
       let nextProviders = current.llmProviders;
       if (req.llmProviders !== undefined) {
         const normalizedProviders = req.llmProviders.providers.map((provider) => {
@@ -214,7 +229,7 @@ export const systemHandlers = {
         },
         llmProviders: nextProviders
       };
-      await saveSettings(settingsRootPath(context), next);
+      await saveSettings(root, next, store);
       return { ok: true, data: next };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };
