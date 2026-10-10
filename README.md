@@ -239,7 +239,7 @@ npx playwright test apps/desktop/tests/e2e/package-smoke.spec.ts
 ## 相关文档
 
 - 规划：`PLAN.md`
-- 产品：`docs/product/`（愿景 `vision.md`、领域研究 `domain-research.md`、治理层设计 `governance-design.md`、路线图 `roadmap.md`）
+- 产品：`docs/product/`（愿景 `vision.md`、领域研究 `domain-research.md`、治理层设计 `governance-design.md`、决策模型选型 `decision-models.md`、研究笔记 `research-notes.md`、路线图 `roadmap.md`）
 - 实现约定：`docs/conventions/m1-implementation.md`
 - 架构：`docs/architecture/`
 - 决策记录：`docs/adr/`

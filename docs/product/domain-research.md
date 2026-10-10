@@ -81,6 +81,7 @@
 | 搜索兜底 | Everything（NTFS MFT 秒搜） | 只解决「找」，不解决「放」 |
 | 新世代 AI organizer | Dropbox Dash、FilesMagic AI、ASCN.ai、ExplainX（2025-2026 一批） | 提议结构后即结束：无登记册、无出生查重、无生长协议、搬迁不可回滚 |
 | 标签/视图 | macOS 标签、Eagle、Tabbles | 依赖自家索引，脱离产品即失效 |
+| System One 决策模型 | Jev（闭源）、Laya（Apache 2.0 开源）、Nimble | 只做类型化判断不生成文本；与本项目工作负载高度对口，选型详见 `decision-models.md` |
 
 **DEVONthink 三个值得单独记录的设计**：AI Classify（基于已有归类推荐目标，置信度分流的前辈）；See Also（跨库相似推荐——「交叉」的产品化线索）；**Replicate**（同一文件出现在多个分组、物理仅一份——复制引用不复制字节）。
 
