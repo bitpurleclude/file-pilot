@@ -1,26 +1,26 @@
 # 决策模型选型：System One 模型与 File-Pilot
 
-版本：v1.0（2026-10-10）
+版本：v1.1（2026-10-11）
 状态：选型评估（含独立评测数据；未绑定实施版本）
 关联：`governance-design.md` §4.4（管线位置）、`roadmap.md` 阶段①（评估 spike）
 
 ## 1. 背景
 
-2026-09，TypeSafe AI 发布 **Jev**（"System One Model"）：输入结构化状态 + 类型化问题，直接输出判断（choice/score/null），宣称比小型前沿 LLM 快 100 倍、便宜 200 倍。随之出现开源可本地部署的同类模型。File-Pilot 的 LLM 工作负载（坐标认领、置信打分、查重判定）几乎全部是此类"纯判断"任务，需要正式选型评估。
+2026-09，TypeSafe AI 发布 **Jev**（"System One Model"）：输入结构化状态 + 类型化问题，直接输出判断（choice/score/noul），宣称比小型前沿 LLM 快 100 倍、便宜 200 倍。随之出现开源可本地部署的同类模型。File-Pilot 的 LLM 工作负载（坐标认领、置信打分、查重判定）几乎全部是此类"纯判断"任务，需要正式选型评估。
 
 注意：Jev 发布仅三周即有独立评测指出其"新范式"叙事存在优先权争议（有 2025 年 arXiv 论文主张在先），选型依据应为本页记录的实测数字而非范式叙事。
 
 ## 2. 候选对比
 
-| | **Jev**（TypeSafe AI，闭源参照系） | **Laya**（Convai Innovations，开源） | **Nimble**（Bespoke Nimble，开源） |
+| | **Jev**（TypeSafe AI，闭源参照系） | **Laya**（Convai Innovations，开源） | **Nimble**（Bespoke Labs，开源） |
 | --- | --- | --- | --- |
-| 许可/形态 | 闭源 API（$0.042/M input tokens），early access | **Apache 2.0**，权重开放（HF，`pip install laya`） | 开源可自托管；公开规格极薄 |
-| 架构 | 未公开 | 非自回归决策引擎：ModernBERT-large 421M / mmBERT-base 322M + 决策头 + **act-vs-escalate 门控**；单次前向 | "System One endpoint" 服务形态 |
-| 原语 | choice / score / null | **Choice**（选项集+完整概率分布）/ **Score**（序数量表）/ **Null**（校准 P(true) 的是否判断） | 分类器（细节未公开） |
-| 变体 | — | `laya`（421M，512 ctx，英文）、`laya-multilingual`（322M，**1024 ctx，宣称 100+ 语言**，快 2.2×）、`laya-typed-decisions`（421M，1024 ctx）；按 Unicode 文字系统自动路由（<0.5ms） | — |
-| 时延 | 236–276ms；串行批量差（10 个 ≈1500ms） | T4 GPU **32.8ms/次**（批量 10 个 72ms）；CPU 193–464ms；权重 808MB | 未知 |
-| 独立评测 | 宽选项集强（77 类 Banking77 **0.870**）；校准最好（ECE 0.144）；软准确率 0.580 | 见 §3 | 未见公开基准 |
-| 选型状态 | 观望（数据出境 + 闭源 + 串行批量弱） | **唯一可评估的开源候选** | 观望（无权威规格） |
+| 许可/形态 | 闭源 API（$0.042/M input tokens），early access | **Apache 2.0**，权重开放（HF，`pip install laya`） | Apache 2.0，可自托管（HF `bespokelabs/Bespoke-Nimble-9B`，Ollama 原生支持） |
+| 架构 | 未公开 | 非自回归决策引擎：ModernBERT-large 421M / mmBERT-base 322M + 决策头 + **act-vs-escalate 门控**；单次前向 | 9B 决策模型（Qwen3.5-9B 微调）：无推理链，直接对候选答案 token 打分；System One API（`/v1/systemone`） |
+| 原语 | choice / score / noul | **Choice**（选项集+完整概率分布）/ **Score**（序数量表）/ **Noul**（校准 P(true) 的是否判断，API 写作 `noul`） | choice / score / noul（兼容 Jev API；单请求最多 64 问，8,192 token 上限） |
+| 变体 | — | `laya`（421M，512 ctx，英文）、`laya-multilingual`（322M，**1024 ctx，宣称 100+ 语言**，快 2.2×）、`laya-typed-decisions`（421M，1024 ctx）；按 Unicode 文字系统自动路由（<0.5ms） | 9B 单一规格（v2/v3 迭代）；未量化权重约 18GB |
+| 时延 | 236–276ms；串行批量差（10 个 ≈1500ms） | T4 GPU **32.8ms/次**（批量 10 个 72ms）；CPU 193–464ms；权重 808MB | 声称 <100ms/次（MacBook Pro M5 Max 本机）；CPU 部署成本待实测 |
+| 独立评测 | 宽选项集强（77 类 Banking77 **0.870**）；校准最好（ECE 0.144）；软准确率 0.580 | 见 §3 | 未见公开基准（社区生态活跃：OpenVINO 量化、LiteLLM 集成） |
+| 选型状态 | 观望（数据出境 + 闭源 + 串行批量弱） | **唯一可评估的开源候选** | 观望（9B 体积与算力门槛远高于 Laya 421M；本地算力允许时可纳入影子模式对比实测） |
 
 ## 3. Laya 的真实能力包络（独立评测，含不利数据）
 
@@ -34,14 +34,14 @@
 
 ### 4.1 有利的四点
 
-1. **任务形状对口**：坐标认领 = Choice，置信分流 = Score，"是否可自动入位" = Null。Null 原语（显式弃权）直接映射我们的寄存区设计——模型主动说"拿不准"比阈值切分更可靠。
+1. **任务形状对口**：坐标认领 = Choice，置信分流 = Score，"是否可自动入位" = Noul（校准 P(true) 的是否判断）。Noul 原语直接映射我们的寄存区设计——模型给出校准的"能/不能"概率，比拍脑袋阈值切分更可靠。
 2. **隐私质变**：本地部署使文件名/内容（个人敏感数据）永不出机，解锁"不接受云端"的用户群；同时消除 API Key 依赖，**首次实现零配置开箱可用**。
 3. **成本结构**：本地边际成本为零；云端 LLM 降级为疑难升级路径。
 4. **数据飞轮闭合**：我们的规则学习/周报改判天然生产带坐标的标注样本，正好供给 Laya 文档指出的"几千条微调"路径——越用越准，且数据不出机。
 
 ### 4.2 必须解决的三点
 
-1. **宽选项错配 → 两级分解**：登记册一次认领最多 ~80 选项，超出 Laya 包络（>20 崩）。解法：决策分解为先领域（≤8 选项）后项目（≤10 选项）——两级都落在舒适区，且与登记册两级结构天然对应（学术依据见 `research-notes.md` 层级分类"local 方法"）。
+1. **宽选项错配 → 两级分解**：登记册一次认领最多 ~72 选项（8 领域 × 9 项目），超出 Laya 包络（>20 崩）。解法：决策分解为先领域（≤8 选项）后项目（≤9 选项，单域槽位上限）——两级都落在舒适区（≤10），且与登记册两级结构天然对应（学术依据见 `research-notes.md` 层级分类"local 方法"）。
 2. **零样本冷启动 → 云端过渡**：初期中间层仍用云端 LLM，本地模型走"寄存积累标注 → SetFit/Laya 微调 → 达标接管"路线（见 §5）。
 3. **中文质量未证**：multilingual 检查点宣称 100+ 语言，但中文文件名上的真实准确率必须自建语料实测（短文本分类是小模型主场，对我们有利，但不能免测）。
 
@@ -57,12 +57,16 @@ T3：云端 LLM 仅处理 NEW:/低置信/跨域疑难；本地兜底保留
 
 验收基准（进入 T2 的硬指标）：
 - 中文文件名语料（自建，含"个人情况说明.doc / 工作规则.doc"类细粒度案例）两级分解准确率 ≥ 90%；
-- 每级选项 ≤10；Null 弃权率与健康样本准确率的权衡曲线达标；
+- 每级选项 ≤10（设计上限：领域 ≤8、项目 ≤9）；Noul 低概率弃权率与健康样本准确率的权衡曲线达标；
 - CPU 推理时延满足 Inbox 后台批处理（无 GPU 机器可用）。
 
 ## 6. 工程集成要点
 
-- `provider-adapter` 增加 `local-decision` 协议类型；`llm.config` 增加模型角色分层（judge / generative）。
-- e2e：`llm-stub` 增加 laya 契约模式（Choice/Score/Null 响应形状）。
+- `provider-adapter` 增加 `local-decision` 协议类型；`shared/config/llm-providers.ts`（provider-only 配置模型）增加模型角色分层（judge / generative）。
+- e2e：`llm-stub` 增加 laya 契约模式（Choice/Score/Noul 响应形状）。
 - 分发：模型作为首启可选下载组件（量化后数百 MB），复用现有原生模块重建的分发经验；不捆绑安装包以控制体积。
 - 版本锁定：生态仅数周大，锁 checkpoint 版本，升级走灰度。
+
+## 修订记录
+
+- v1.1（2026-10-11）：Nimble 行按公开规格更新（Bespoke Labs、9B/Qwen3.5-9B、Apache 2.0、Ollama/HF 自托管）；决策原语名修正为 Noul（`noul`）；项目级选项上限与登记册对齐（≤9）；配置命名更新为 provider-only 结构。

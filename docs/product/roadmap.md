@@ -1,6 +1,6 @@
 # 治理层路线图
 
-版本：v1.0（2026-10-10）
+版本：v1.1（2026-10-11）
 前置阅读：`vision.md`、`governance-design.md`
 说明：本路线图未绑定版本号与发布日期；每阶段进入实施时按仓库 AGENTS.md 约定补更新维护交付物（分支、验收证据、回滚说明）。
 
@@ -68,13 +68,19 @@
 **验收标准（用真实案例做基准）**
 - 对开发者的 D 盘扫描，必须命中以下已知案例：`video/` vs `vedio/`（拼写孪生）；`公务员/` vs `公务员考试/`（同主题分阶段）；`毕业设计/` vs `fsor_gloCal/`（同项目散布）；四处下载目录（`download` / `BaiduNetdiskDownload` / `downloadApp` / `msdownld.tmp`）。
 - 扫描全程只读（不产生任何移动）。
+- 说明：上述案例名来自开发者本机私有盘，仅作本地验收基准；对外分发本文档前须脱敏。
 
 ## 与现有分支的关系
 
-本路线图建立在以下已交付工作之上（均已在远端分支）：
+本路线图建立在以下工作之上（构成 master 之上的线性分支栈，均未合并 master）：
 
-- `transition-provider-only-wip`：provider-only 设置重构
-- `feat/deliverable-fixes-20261006`：安全/可靠性加固 + 便携版打包
-- `feat/e2e-remediation-20261006`：测试隔离基建 + LLM stub + UI e2e（治理层的 e2e 直接复用该基建）
+- `transition-provider-only-wip`（`0238c6e`）：provider-only 设置重构（WIP；其门禁修复落在子提交 `90cdcae`）
+- `feat/deliverable-fixes-20261006`（`90cdcae`）：安全/可靠性加固 + 便携版打包（门禁全绿基线，验证记录见 `docs/release/deliverable-20261006.md`）
+- `feat/e2e-remediation-20261006`（`3935f18`）：测试隔离基建 + LLM stub + UI e2e（治理层的 e2e 直接复用该基建）
+- `docs/product-governance-vision`（`49ecb58`）：本文档集
 
-实施时从最新分支续开新分支，PR 栈依次叠加。
+实施时以栈顶分支（`feat/e2e-remediation-20261006` 或其后续）为基线续开新分支，PR 栈依次叠加；任何门禁验证结论须注明所验证的 commit（格式参考 `deliverable-20261006.md`）。
+
+## 修订记录
+
+- v1.1（2026-10-11）：分支栈现状与基线 commit 写明（含验证基线要求）；阶段④案例名增加脱敏说明。

@@ -28,7 +28,7 @@ Follow it together with source code and in-repo docs.
   - `apps/desktop/infra` (adapters)
   - `apps/desktop/shared` (types/config/contracts)
   - `apps/desktop/tests` (unit/integration/e2e placeholder)
-  - `docs/` (architecture/conventions/release/adr)
+  - `docs/` (product/architecture/conventions/release/adr)
 
 ## 2) Rule Sources Checked
 
