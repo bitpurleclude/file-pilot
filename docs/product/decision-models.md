@@ -6,7 +6,7 @@
 
 ## 1. 背景
 
-2026-09，TypeSafe AI 发布 **Jev**（"System One Model"）：输入结构化状态 + 类型化问题，直接输出判断（choice/score/noul），宣称比小型前沿 LLM 快 100 倍、便宜 200 倍。随之出现开源可本地部署的同类模型。File-Pilot 的 LLM 工作负载（坐标认领、置信打分、查重判定）几乎全部是此类"纯判断"任务，需要正式选型评估。
+2026-09，TypeSafe AI 发布 **Jev**（"System One Model"）：输入结构化状态 + 类型化问题，直接输出判断（三个原语，官方落地页仅泛称 "typed outputs" 与 "calibrated confidence"，未公布原语命名——业界普遍转述为 choice/score/null，见 §2 口径注记），宣称比小型前沿 LLM 快约两个数量级（官方落地页标称 "193.6x Faster, 444.6x Cheaper"，早期媒体转述为 100x/200x）。随之出现开源可本地部署的同类模型。File-Pilot 的 LLM 工作负载（坐标认领、置信打分、查重判定）几乎全部是此类"纯判断"任务，需要正式选型评估。
 
 注意：Jev 发布仅三周即有独立评测指出其"新范式"叙事存在优先权争议（有 2025 年 arXiv 论文主张在先），选型依据应为本页记录的实测数字而非范式叙事。
 
@@ -16,11 +16,13 @@
 | --- | --- | --- | --- |
 | 许可/形态 | 闭源 API（$0.042/M input tokens），early access | **Apache 2.0**，权重开放（HF，`pip install laya`） | Apache 2.0，可自托管（HF `bespokelabs/Bespoke-Nimble-9B`，Ollama 原生支持） |
 | 架构 | 未公开 | 非自回归决策引擎：ModernBERT-large 421M / mmBERT-base 322M + 决策头 + **act-vs-escalate 门控**；单次前向 | 9B 决策模型（Qwen3.5-9B 微调）：无推理链，直接对候选答案 token 打分；System One API（`/v1/systemone`） |
-| 原语 | choice / score / noul | **Choice**（选项集+完整概率分布）/ **Score**（序数量表）/ **Noul**（校准 P(true) 的是否判断，API 写作 `noul`） | choice / score / noul（兼容 Jev API；单请求最多 64 问，8,192 token 上限） |
+| 原语 | choice / score / null（媒体转述；官方落地页未公布命名，实现前以 docs.typesafe.ai 为准——口径注记见 §2 末） | **Choice**（选项集+完整概率分布）/ **Score**（序数量表）/ **Null**（校准 P(true) 的是否判断） | choice / score / null（兼容 Jev API；来源为社区转述的"单请求最多 64 问、8,192 token 上限"，未经官方文档核实） |
 | 变体 | — | `laya`（421M，512 ctx，英文）、`laya-multilingual`（322M，**1024 ctx，宣称 100+ 语言**，快 2.2×）、`laya-typed-decisions`（421M，1024 ctx）；按 Unicode 文字系统自动路由（<0.5ms） | 9B 单一规格（v2/v3 迭代）；未量化权重约 18GB |
 | 时延 | 236–276ms；串行批量差（10 个 ≈1500ms） | T4 GPU **32.8ms/次**（批量 10 个 72ms）；CPU 193–464ms；权重 808MB | 声称 <100ms/次（MacBook Pro M5 Max 本机）；CPU 部署成本待实测 |
 | 独立评测 | 宽选项集强（77 类 Banking77 **0.870**）；校准最好（ECE 0.144）；软准确率 0.580 | 见 §3 | 未见公开基准（社区生态活跃：OpenVINO 量化、LiteLLM 集成） |
 | 选型状态 | 观望（数据出境 + 闭源 + 串行批量弱） | **唯一可评估的开源候选** | 观望（9B 体积与算力门槛远高于 Laya 421M；本地算力允许时可纳入影子模式对比实测） |
+
+> 来源注记：Nimble 规格引自 [HF 模型卡 bespokelabs/Bespoke-Nimble-9B](https://huggingface.co/bespokelabs/Bespoke-Nimble-9B)（LoRA on Qwen3.5-9B，Apache 2.0，训练集约 2,676 条对比精选样本）及独立评测；Laya 数据来自独立深度评测（含不利数据）；Jev 价格与标称倍数以官方落地页为准。Jev 原语命名在官方落地页未公布，本表按媒体转述记作 null——**实现前必须以 docs.typesafe.ai 核对**。
 
 ## 3. Laya 的真实能力包络（独立评测，含不利数据）
 
@@ -34,7 +36,7 @@
 
 ### 4.1 有利的四点
 
-1. **任务形状对口**：坐标认领 = Choice，置信分流 = Score，"是否可自动入位" = Noul（校准 P(true) 的是否判断）。Noul 原语直接映射我们的寄存区设计——模型给出校准的"能/不能"概率，比拍脑袋阈值切分更可靠。
+1. **任务形状对口**：坐标认领 = Choice，置信分流 = Score，"是否可自动入位" = Null（校准 P(true) 的是否判断，媒体转述拼写；官方未公布命名）。Null 原语直接映射我们的寄存区设计——模型给出校准的"能/不能"概率，比拍脑袋阈值切分更可靠。
 2. **隐私质变**：本地部署使文件名/内容（个人敏感数据）永不出机，解锁"不接受云端"的用户群；同时消除 API Key 依赖，**首次实现零配置开箱可用**。
 3. **成本结构**：本地边际成本为零；云端 LLM 降级为疑难升级路径。
 4. **数据飞轮闭合**：我们的规则学习/周报改判天然生产带坐标的标注样本，正好供给 Laya 文档指出的"几千条微调"路径——越用越准，且数据不出机。
@@ -57,16 +59,16 @@ T3：云端 LLM 仅处理 NEW:/低置信/跨域疑难；本地兜底保留
 
 验收基准（进入 T2 的硬指标）：
 - 中文文件名语料（自建，含"个人情况说明.doc / 工作规则.doc"类细粒度案例）两级分解准确率 ≥ 90%；
-- 每级选项 ≤10（设计上限：领域 ≤8、项目 ≤9）；Noul 低概率弃权率与健康样本准确率的权衡曲线达标；
+- 每级选项 ≤10（设计上限：领域 ≤8、项目 ≤9）；Null 低概率弃权率与健康样本准确率的权衡曲线达标；
 - CPU 推理时延满足 Inbox 后台批处理（无 GPU 机器可用）。
 
 ## 6. 工程集成要点
 
 - `provider-adapter` 增加 `local-decision` 协议类型；`shared/config/llm-providers.ts`（provider-only 配置模型）增加模型角色分层（judge / generative）。
-- e2e：`llm-stub` 增加 laya 契约模式（Choice/Score/Noul 响应形状）。
+- e2e：`llm-stub` 增加 laya 契约模式（Choice/Score/Null 响应形状）。
 - 分发：模型作为首启可选下载组件（量化后数百 MB），复用现有原生模块重建的分发经验；不捆绑安装包以控制体积。
 - 版本锁定：生态仅数周大，锁 checkpoint 版本，升级走灰度。
 
 ## 修订记录
 
-- v1.1（2026-10-11）：Nimble 行按公开规格更新（Bespoke Labs、9B/Qwen3.5-9B、Apache 2.0、Ollama/HF 自托管）；决策原语名修正为 Noul（`noul`）；项目级选项上限与登记册对齐（≤9）；配置命名更新为 provider-only 结构。
+- v1.1（2026-10-11）：Nimble 行按公开规格更新（Bespoke Labs、9B/Qwen3.5-9B、Apache 2.0、Ollama/HF 自托管）；决策原语拼写统一为 Null（v1.1 曾改作 Noul，经查证官方落地页未公布任何原语命名、媒体转述为 null，两说均未经官方文档确认——实现前以 docs.typesafe.ai 为准）；项目级选项上限与登记册对齐（≤9）；配置命名更新为 provider-only 结构。
