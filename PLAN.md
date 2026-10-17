@@ -71,9 +71,9 @@
 - 变更要求：每次代码修改必须同步至少一类文档（变更说明/接口文档/配置文档）。
 - PR 门禁：源码变更但无文档变更时阻断，除非标注 docs-exempt 并说明理由。
 
-已确认决策（2026-10-11，文档结构与治理层）
+已确认决策（2026-10-11，文档结构与治理层；2026-10-11 经所有者追认取代条目）
 - 文档结构补充：在 docs/architecture|conventions|release|adr 之外新增 `docs/product`（vision、roadmap、governance-design、domain-research、decision-models、research-notes）。
-- 产品定位升级为「个人文件层级治理层」，转向决策见 `docs/adr/0002-schema-first-governance-pivot.md`；该决策取代本文件 2026-02-12「M1 默认执行策略：仅 Dry-run」——Inbox 高置信文件自动入位（未确认标记 + 周报批量复核 + 可回滚）。
+- 产品定位升级为「个人文件层级治理层」，转向决策见 `docs/adr/0002-schema-first-governance-pivot.md`；该决策取代本文件 2026-02-12「M1 默认执行策略：仅 Dry-run」——Inbox 高置信文件自动入位（未确认标记 + 周报批量复核 + 可回滚）。追认依据与安全边界见该 ADR「对既有决策的取代」节。
 
 已确认需求与约束
 - LLM：云端模型可接受，默认 LLM 优先（本地规则仅辅助/校验）。
