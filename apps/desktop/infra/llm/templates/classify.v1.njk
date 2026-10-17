@@ -11,7 +11,15 @@
 1. 仅返回 JSON，不要解释，不要使用 Markdown 代码围栏。
 2. confidence 取值范围 0 到 1。
 3. project 为空时填 "默认项目"。
-4. project 为简短项目名，禁止路径分隔符、`..` 与 Windows 非法字符 \/:*?"<>|。
+{% if coordinates %}4. project 必须从下方「可用项目坐标清单」中认领坐标，格式为 "<领域编号>-<领域名>/<项目编号>-<项目名>"。
+5. 确实不属于任何清单坐标时，project 输出 "{{ newProjectPrefix }}<简短中文名>"，{{ newProjectPrefix }} 后必须紧跟冒号；名称为简短项目名，禁止路径分隔符、`..` 与 Windows 非法字符 \/:*?"<>|。
+6. 不要发明清单外的坐标，也不要把 {{ newProjectPrefix }} 名称写成坐标格式。
+
+可用项目坐标清单（每行一条）：
+{% for coordinate in coordinates %}- {{ coordinate.areaNumber }}-{{ coordinate.areaName }}/{{ coordinate.projectNumber }}-{{ coordinate.projectName }}
+{% endfor %}
+{%- else %}4. project 为简短项目名，禁止路径分隔符、`..` 与 Windows 非法字符 \/:*?"<>|。
+{%- endif %}
 
 输入：
 - 文件名：{{ item.name }}

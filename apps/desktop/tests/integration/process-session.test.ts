@@ -309,4 +309,125 @@ describe("process-session", () => {
     expect(outcome).toBeInstanceOf(AppError);
     expect((outcome as AppError).code).toBe("USER_PATH_NOT_ALLOWED");
   });
+
+  describe("dual-track placement (governance stage 1)", () => {
+    const coordinates = [
+      { areaNumber: 30, areaName: "考公", projectNumber: 1, projectName: "行测" },
+      { areaNumber: 30, areaName: "考公", projectNumber: 2, projectName: "申论" }
+    ];
+
+    const runWithProject = async (
+      root: string,
+      fileName: string,
+      project: string,
+      purpose: Classification["purpose"] = "Study"
+    ) => {
+      const input = join(root, fileName);
+      await writeFile(input, "dual-track", "utf-8");
+
+      const classifier: BatchLlmClassifier = {
+        classify: async () => ({
+          purpose,
+          project,
+          confidence: 0.9,
+          reasons: ["dual-track-mock"],
+          decisionSource: "llm-primary"
+        })
+      };
+
+      return processSession({
+        filePaths: [input],
+        settings: createSettings(root),
+        workspaceRoot: join(root, "workspace"),
+        classifier,
+        rules: [],
+        coordinates,
+        now: new Date(2026, 1, 12, 10, 11, 12)
+      });
+    };
+
+    it("routes a registry-hit coordinate claim to the coordinated path without a time bucket", async () => {
+      const root = await mkdtemp(join(tmpdir(), "file-pilot-coordinated-"));
+      tempDirs.push(root);
+
+      const result = await runWithProject(root, "笔记.pdf", "30-考公/1-行测");
+
+      const item = result.items[0];
+      expect(item).toBeDefined();
+      const normalizedPath = (item?.plan.targetPath ?? "").replaceAll("\\", "/");
+      expect(normalizedPath.endsWith("workspace/30-考公/1-行测/笔记.pdf")).toBe(true);
+      expect(normalizedPath).not.toContain("2026/");
+      expect(item?.plan.coordinate).toEqual({
+        areaNumber: 30,
+        areaName: "考公",
+        projectNumber: 1,
+        projectName: "行测"
+      });
+      expect(item?.plan.uncoordinated).toBe(false);
+      expect(item?.classification.proposedProject).toBeUndefined();
+    });
+
+    it("keeps NEW: claims on the legacy track and records proposedProject", async () => {
+      const root = await mkdtemp(join(tmpdir(), "file-pilot-new-claim-"));
+      tempDirs.push(root);
+
+      const result = await runWithProject(root, "冲刺.pdf", "NEW:行测冲刺");
+
+      const item = result.items[0];
+      expect(item).toBeDefined();
+      expect(item?.classification.proposedProject).toBe("行测冲刺");
+      expect(item?.classification.project).toBe("NEW:行测冲刺");
+      const normalizedPath = (item?.plan.targetPath ?? "").replaceAll("\\", "/");
+      expect(normalizedPath.endsWith("workspace/Study/行测冲刺/2026/02/冲刺.pdf")).toBe(true);
+      expect(item?.plan.coordinate).toBeUndefined();
+      expect(item?.plan.uncoordinated).toBe(true);
+    });
+
+    it("falls back to the legacy track for a project name missing from the coordinate list", async () => {
+      const root = await mkdtemp(join(tmpdir(), "file-pilot-off-list-"));
+      tempDirs.push(root);
+
+      const result = await runWithProject(root, "随手记.pdf", "名单外的项目");
+
+      const item = result.items[0];
+      expect(item).toBeDefined();
+      const normalizedPath = (item?.plan.targetPath ?? "").replaceAll("\\", "/");
+      expect(normalizedPath.endsWith("workspace/Study/名单外的项目/2026/02/随手记.pdf")).toBe(true);
+      expect(item?.plan.coordinate).toBeUndefined();
+      expect(item?.plan.uncoordinated).toBe(true);
+      expect(item?.classification.proposedProject).toBeUndefined();
+    });
+
+    it("treats a coordinate-form claim as legacy when no coordinates are provided", async () => {
+      const root = await mkdtemp(join(tmpdir(), "file-pilot-no-coords-"));
+      tempDirs.push(root);
+      const input = join(root, "遗留.pdf");
+      await writeFile(input, "legacy", "utf-8");
+
+      const classifier: BatchLlmClassifier = {
+        classify: async () => ({
+          purpose: "Documents",
+          project: "30-考公/1-行测",
+          confidence: 0.9,
+          reasons: ["legacy-mock"],
+          decisionSource: "llm-primary"
+        })
+      };
+
+      const result = await processSession({
+        filePaths: [input],
+        settings: createSettings(root),
+        workspaceRoot: join(root, "workspace"),
+        classifier,
+        rules: [],
+        now: new Date(2026, 1, 12, 10, 11, 12)
+      });
+
+      const item = result.items[0];
+      expect(item).toBeDefined();
+      expect(item?.plan.uncoordinated).toBe(true);
+      expect(item?.plan.coordinate).toBeUndefined();
+      expect((item?.plan.targetPath ?? "").replaceAll("\\", "/")).toContain("workspace/Documents/");
+    });
+  });
 });

@@ -198,5 +198,35 @@
       "whitelistDirectories": "Whitelist Directories",
       "whitelistPlaceholder": "Split directories with ';'"
     }
+  },
+  "registry": {
+    "tabTitle": "Registry",
+    "title": "Registry",
+    "refresh": "Refresh",
+    "empty": "No areas yet; create one first",
+    "areas": "Area",
+    "projects": "Project",
+    "archived": "archived",
+    "projectCount": "{{total}} projects",
+    "noProjects": "No projects in this area",
+    "newAreaName": "New area name",
+    "createArea": "Create Area",
+    "newProjectName": "New project name",
+    "selectArea": "Select an area",
+    "createProject": "Create Project",
+    "nextSlotHint": "Will claim {{slot}}-{{name}}",
+    "archive": "Archive",
+    "dedupChecking": "Checking duplicates…",
+    "dedupClean": "No duplicate or similar names found",
+    "level": {
+      "exact": "Exact duplicate",
+      "similar": "Similar name",
+      "semantic": "Semantic match"
+    },
+    "warningsTitle": "Similar-name warnings (created anyway)",
+    "proposalsTitle": "New project proposals",
+    "proposalsEmpty": "No pending proposals",
+    "proposalMeta": "{{purpose}} · confidence {{confidence}}",
+    "proposalIgnore": "Ignore"
   }
 }

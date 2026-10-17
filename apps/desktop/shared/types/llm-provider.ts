@@ -19,8 +19,9 @@ export type ProviderAuthType =
  * Provider 协议类型
  */
 export type ProviderProtocol =
-  | "openai"      // 完全兼容 OpenAI API
-  | "custom";     // 需要自定义适配
+  | "openai"          // 完全兼容 OpenAI API
+  | "local-decision"  // 本地决策端点（Laya/System One 形态：结构化状态 + 类型化问题，决策模型影子模式 T1）
+  | "custom";         // 需要自定义适配
 
 export type ProviderModelControlMode = "intensity" | "manual";
 
@@ -102,6 +103,16 @@ export interface LlmProviderConfig {
   
   /** 端点路径（可选，默认 /chat/completions） */
   endpoint?: string;
+
+  /**
+   * 本地决策请求形态（仅 protocol="local-decision" 时生效，缺省 "systemone"）：
+   * - "systemone"：结构化 questions 端点（默认路径 /v1/systemone）；
+   * - "openai-chat"：借 OpenAI 兼容对话端点承载决策负载（默认路径 /chat/completions）。
+   */
+  decisionMode?: "systemone" | "openai-chat";
+
+  /** 本地决策端点路径覆盖（仅 protocol="local-decision" 时生效；缺省按 decisionMode 取默认路径）。 */
+  decisionEndpointPath?: string;
 }
 
 /**

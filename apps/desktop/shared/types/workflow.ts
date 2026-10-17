@@ -1,3 +1,5 @@
+import type { CoordinateOption } from "./registry.js";
+
 export type Purpose =
   | "Documents"
   | "Media"
@@ -59,6 +61,8 @@ export interface Classification {
   promptVersion?: string;
   model?: string;
   usage?: { promptTokens: number; completionTokens: number };
+  /** Clean name behind a `NEW:<name>` LLM claim, for the domain-creation wizard. */
+  proposedProject?: string;
 }
 
 export interface PlacementPlan {
@@ -67,6 +71,10 @@ export interface PlacementPlan {
   targetPath: string;
   action: ExecuteAction;
   conflictPolicy: ConflictPolicy;
+  /** Registry coordinate the item was placed under (coordinated track only). */
+  coordinate?: CoordinateOption;
+  /** True when the target keeps the legacy purpose/project[/time-bucket] layout. */
+  uncoordinated?: boolean;
 }
 
 export interface ExecutionResult {

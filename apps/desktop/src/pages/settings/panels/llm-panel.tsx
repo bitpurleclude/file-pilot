@@ -35,6 +35,17 @@ interface LlmPanelProps {
   onChange: SettingsDraftChange;
 }
 
+/**
+ * 用户可在本面板配置的供应商协议。`local-decision`（本地决策端点）不是用户在
+ * LLM 面板里配置的供应商协议（影子模式 T1 由 shadow 配置驱动），因此协议下拉
+ * 与连接测试载荷只保留 openai/custom 两个用户可选值。
+ */
+const selectableProtocols: Array<"openai" | "custom"> = ["openai", "custom"];
+
+const resolveSelectableProtocol = (protocol: LlmProviderConfig["protocol"]): "openai" | "custom" => {
+  return protocol === "openai" ? "openai" : "custom";
+};
+
 const toNonEmptyProviders = (providers: LlmProviderConfig[]): [LlmProviderConfig, ...LlmProviderConfig[]] | null => {
   const firstProvider = providers[0];
   if (firstProvider === undefined) {
@@ -191,7 +202,7 @@ export const LlmPanel = ({ settings, onChange }: LlmPanelProps): JSX.Element => 
       baseUrl: activeProvider.baseUrl,
       model: resolvedModels.primaryModel,
       authType: activeProvider.authType,
-      protocol: activeProvider.protocol,
+      protocol: resolveSelectableProtocol(activeProvider.protocol),
       ...(activeProvider.apiKey === undefined ? {} : { apiKey: activeProvider.apiKey }),
       ...(activeProvider.endpoint === undefined ? {} : { endpoint: activeProvider.endpoint }),
       ...(activeProvider.customHeaders === undefined ? {} : { customHeaders: activeProvider.customHeaders })
@@ -343,8 +354,11 @@ export const LlmPanel = ({ settings, onChange }: LlmPanelProps): JSX.Element => 
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="custom">{t("settings.llm.customProtocol")}</SelectItem>
+                  {selectableProtocols.map((protocol) => (
+                    <SelectItem key={protocol} value={protocol}>
+                      {protocol === "openai" ? "OpenAI" : t("settings.llm.customProtocol")}
+                    </SelectItem>
+                  ))}
                 </SelectContent>
               </Select>
             </div>

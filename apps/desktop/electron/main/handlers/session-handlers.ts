@@ -7,10 +7,12 @@ import {
 } from "../../../shared/ipc/contracts.js";
 import { RuleFirstLlmClassifier } from "../../../infra/llm/rule-first-llm.js";
 import { loadSettings } from "../../../infra/storage/settings-repository.js";
+import { resolveProjectClaim } from "../../../core/usecases/coordinate-resolution.js";
 import { applySession, processSession, rollbackSession } from "../../../core/usecases/process-session.js";
 import { buildPlacementPlan } from "../../../core/usecases/plan-placement.js";
 import { createSession, updateSessionStatus, withExecutions } from "../../../core/usecases/session-manager.js";
 import { openSqliteDatabase } from "../../../infra/storage/sqlite/db.js";
+import { listActiveCoordinates } from "../../../infra/storage/sqlite/repositories/registry-repository.js";
 import {
   appendDecisionRecordsSqlite
 } from "../../../infra/storage/sqlite/repositories/decisions-repository.js";
@@ -18,6 +20,7 @@ import {
   createRuleSqlite,
   listRulesSqlite
 } from "../../../infra/storage/sqlite/repositories/rules-repository.js";
+import { triggerShadowAlignments } from "../../../infra/llm/shadow-runner.js";
 import {
   getSessionByIdSqlite,
   listSessionItemsSqlite,
@@ -81,6 +84,7 @@ export const sessionHandlers = {
       const settings = await loadSettings(settingsRootPath(context));
       assertNotReadOnly(settings, "analyze");
       const rules = listRulesSqlite(db, { includeDisabled: false });
+      const coordinates = listActiveCoordinates(db);
 
       const session = updateSessionStatus(createSession({ itemIds: [], sessionId: req.sessionId }), "analyzing");
       const processed = await processSession({
@@ -89,6 +93,7 @@ export const sessionHandlers = {
         workspaceRoot: context.workspaceRoot,
         classifier: new RuleFirstLlmClassifier(settings),
         rules,
+        coordinates,
         now: new Date()
       });
 
@@ -120,6 +125,9 @@ export const sessionHandlers = {
       );
       appendDecisionRecordsSqlite(db, toDecisionRecords(req.sessionId, processed.items));
       markRuleHits(sqlitePath(context), processed.items);
+      // 影子模式旁路（decision-models.md §5 T1）：fire-and-forget，只记录对齐，
+      // 未启用/端点为空时静默跳过；内部全 try/catch，绝不影响本 handler 返回。
+      void triggerShadowAlignments({ sessionId: req.sessionId, items: processed.items, db });
 
       await safeWriteLog(context, {
         level: "info",
@@ -280,6 +288,7 @@ export const sessionHandlers = {
 
       const items = listSessionItemsSqlite(db, req.sessionId);
       const now = new Date();
+      const coordinates = listActiveCoordinates(db);
       let updatedCount = 0;
       const nextItems: ProcessedSessionItem[] = items.map((item): ProcessedSessionItem => {
         // applyToAll means "apply the answer to every pending follow-up item";
@@ -299,16 +308,22 @@ export const sessionHandlers = {
           reasons: [...item.classification.reasons, `followup:${req.answer}`]
         };
 
+        // The answer may itself name a registry coordinate — honor it instead
+        // of silently falling back to the uncoordinated track.
+        const claim = resolveProjectClaim(req.answer, coordinates);
         const { followUpQuestion: _followUpQuestion, ...restItem } = item;
         return {
           ...restItem,
-          classification,
+          classification: claim.kind === "new-project"
+            ? { ...classification, proposedProject: claim.proposedProject }
+            : classification,
           plan: buildPlacementPlan({
             fileId: item.item.id,
             sourcePath: item.item.path,
             classification,
             workspaceRoot: context.workspaceRoot,
-            now
+            now,
+            coordinate: claim.kind === "coordinated" ? claim.coordinate : null
           }),
           needsFollowUp: false,
           decisionSource: "followup" as const
@@ -398,6 +413,7 @@ export const sessionHandlers = {
 
       const items = listSessionItemsSqlite(db, req.sessionId);
       const now = new Date();
+      const coordinates = listActiveCoordinates(db);
       let updatedCount = 0;
       let savedRule: ClassificationRule | null = null;
 
@@ -422,16 +438,22 @@ export const sessionHandlers = {
           reasons: [...item.classification.reasons, "manual-correction"]
         };
 
+        // A correction naming an existing coordinate stays on the coordinated
+        // track; a NEW: name becomes a proposal instead of a silent fallback.
+        const claim = resolveProjectClaim(req.project, coordinates);
         const { followUpQuestion: _followUpQuestion, ...restItem } = item;
         return {
           ...restItem,
-          classification,
+          classification: claim.kind === "new-project"
+            ? { ...classification, proposedProject: claim.proposedProject }
+            : classification,
           plan: buildPlacementPlan({
             fileId: item.item.id,
             sourcePath: item.item.path,
             classification,
             workspaceRoot: context.workspaceRoot,
-            now
+            now,
+            coordinate: claim.kind === "coordinated" ? claim.coordinate : null
           }),
           needsFollowUp: false,
           decisionSource: "manual-correction" as const

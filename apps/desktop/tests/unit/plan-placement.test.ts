@@ -6,6 +6,7 @@ import {
   timestampSuffix
 } from "../../core/usecases/plan-placement.js";
 import type { Classification } from "../../shared/types/workflow.js";
+import type { CoordinateOption } from "../../shared/types/registry.js";
 
 const buildClassification = (overrides: Partial<Classification>): Classification => ({
   purpose: "Documents",
@@ -14,6 +15,13 @@ const buildClassification = (overrides: Partial<Classification>): Classification
   reasons: ["test"],
   ...overrides
 });
+
+const coordinate: CoordinateOption = {
+  areaNumber: 30,
+  areaName: "考公",
+  projectNumber: 1,
+  projectName: "行测"
+};
 
 describe("plan-placement", () => {
   it("keeps the original file name and adds time bucket for Media", () => {
@@ -140,5 +148,75 @@ describe("plan-placement", () => {
       expect(normalizedPath).toContain("2026/02");
       expect(normalizedPath.endsWith("doc.txt")).toBe(true);
     });
+
+    it("marks legacy plans as uncoordinated without a coordinate", () => {
+      const plan = buildPlacementPlan({
+        fileId: "file-1",
+        sourcePath: "C:/in/doc.txt",
+        classification: buildClassification({ project: "demo" }),
+        workspaceRoot: "D:/target",
+        now: new Date(2026, 1, 12)
+      });
+
+      expect(plan.uncoordinated).toBe(true);
+      expect(plan.coordinate).toBeUndefined();
+    });
+  });
+});
+
+describe("buildPlacementPlan coordinated track", () => {
+  it("places files directly under the registry coordinate without a time bucket", () => {
+    const plan = buildPlacementPlan({
+      fileId: "file-1",
+      sourcePath: "C:/in/pic.jpg",
+      classification: buildClassification({ purpose: "Media", project: "30-考公/1-行测" }),
+      workspaceRoot: "D:/target",
+      now: new Date(2026, 1, 12, 10, 11, 12),
+      coordinate
+    });
+
+    const normalizedPath = plan.targetPath.replaceAll("\\", "/");
+    expect(normalizedPath.endsWith("D:/target/30-考公/1-行测/pic.jpg")).toBe(true);
+    expect(normalizedPath).not.toContain("2026/02");
+    expect(plan.coordinate).toEqual(coordinate);
+    expect(plan.uncoordinated).toBe(false);
+    expect(plan.conflictPolicy).toBe("rename");
+    expect(plan.action).toBe("move");
+  });
+
+  it("keeps the original file name and keeps the coordinate payload intact", () => {
+    const plan = buildPlacementPlan({
+      fileId: "file-1",
+      sourcePath: "C:/in/真题-2026.pdf",
+      classification: buildClassification({ purpose: "Study", project: "30-考公/1-行测" }),
+      workspaceRoot: "D:/target",
+      now: new Date(2026, 1, 12),
+      coordinate
+    });
+
+    expect(plan.targetPath.endsWith("真题-2026.pdf")).toBe(true);
+    expect(plan.coordinate).toEqual({
+      areaNumber: 30,
+      areaName: "考公",
+      projectNumber: 1,
+      projectName: "行测"
+    });
+  });
+
+  it("treats an explicit null coordinate exactly like the legacy track", () => {
+    const plan = buildPlacementPlan({
+      fileId: "file-1",
+      sourcePath: "C:/in/report.pdf",
+      classification: buildClassification({ purpose: "Media", project: "旅行" }),
+      workspaceRoot: "D:/target",
+      now: new Date(2026, 1, 12, 10, 11, 12),
+      coordinate: null
+    });
+
+    const normalizedPath = plan.targetPath.replaceAll("\\", "/");
+    expect(normalizedPath).toContain("Media/旅行/");
+    expect(normalizedPath).toContain("2026/02");
+    expect(plan.coordinate).toBeUndefined();
+    expect(plan.uncoordinated).toBe(true);
   });
 });
