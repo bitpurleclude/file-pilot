@@ -9,6 +9,7 @@
 | 触发分支 | `fix/review-findings-20261018` |
 | 日期 | `2026-10-18` |
 | 基线 | `bbb4a03`（`feat/registry-stage1-20261017`，审查基线） |
+| 修复提交 | `b7fc79a` |
 | worktree | `.worktrees/review-fixes` |
 
 ## 变更清单
@@ -36,14 +37,14 @@
 
 ## 回滚说明
 
-- 代码回滚：对本次修复提交执行 `git revert <fix-commit>`；未合并前可直接 `git reset --hard bbb4a03`。
+- 代码回滚：`git revert b7fc79a`；未合并前可直接 `git reset --hard bbb4a03`。
 - 数据库回滚：本次不新增迁移；`classification_rules.project_id` 来自 `0004_registry.sql`。回滚后旧代码忽略该列与 `sample_paths`，无需降级数据库。
 - 更新缓存：回滚前建议删除 `%APPDATA%\File Pilot\updates\*`，避免旧版客户端复用新流程下载的文件。
 - 用户数据：设置、日志、会话与登记册均在 `%APPDATA%\File Pilot`，回滚不删除。
 
 ## 验证证据
 
-执行环境：Windows 11（win32 10.0.26100 x64）、Node `v24.13.0`、npm `11.6.2`。worktree：`.worktrees/review-fixes`；基线提交 `bbb4a03`。
+执行环境：Windows 11（win32 10.0.26100 x64）、Node `v24.13.0`、npm `11.6.2`。worktree：`.worktrees/review-fixes`；修复提交 `b7fc79a`（基于 `bbb4a03`）。
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
