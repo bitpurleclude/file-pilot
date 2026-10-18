@@ -258,3 +258,4 @@ npx playwright test apps/desktop/tests/e2e/package-smoke.spec.ts
 - 架构：`docs/architecture/`
 - 决策记录：`docs/adr/`
 - 发布：`docs/release/`
+- 交接/待办：`docs/plan/tray-ui-followups.md`
