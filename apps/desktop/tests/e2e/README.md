@@ -30,6 +30,15 @@ For packaged smoke:
 
 失败诊断由 `playwright.config.ts` 统一提供：`trace: "on-first-retry"`、`screenshot: "only-on-failure"`、HTML 报告输出到 `playwright-report/`（`open: "never"`），CI 中 `retries: 1`。
 
+## Tray-first windows
+
+The app is tray-resident: the first BrowserWindow is the compact popover (`?view=popover`), created hidden and shown by the tray. Clicking the gear opens a separate settings BrowserWindow (`?view=settings`) via `fp:open-settings`. Tests must use the helpers:
+
+- `openSettingsWindow(app, popoverPage)` waits for the new window and returns its page.
+- `closeSettingsWindow(settingsPage)` clicks `settings-back` and waits for close; the popover page remains available.
+
+Specs that only use `window.filePilotApi` keep using `app.firstWindow()`; they do not need to open settings.
+
 ## Hidden window mode
 
 `helpers/electron-launch.ts` 默认通过 `FILE_PILOT_E2E_HIDE_WINDOW=1` 让主进程以 `show: false` 创建窗口，Playwright 仍通过 CDP 驱动页面。因此运行 e2e 时不会在桌面上反复弹出/闪烁窗口。需要肉眼看 UI 调试时，调用 `launchElectronApp({ hideWindow: false })`。

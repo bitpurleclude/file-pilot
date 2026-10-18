@@ -1,37 +1,30 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, ipcMain } from "electron";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { writeLogRecord } from "../../infra/logging/file-logger.js";
+import { loadSettings } from "../../infra/storage/settings-repository.js";
 import { bootstrapSqliteStorage } from "../../infra/storage/sqlite/bootstrap.js";
 import { closeAllSqliteDatabases } from "../../infra/storage/sqlite/db.js";
 import { checkForUpdates } from "../../infra/updater/check-updates.js";
 import { REGISTRY_CONFIG } from "../../shared/config/registry.config.js";
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
-import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
+import {
+  IPC_CHANNELS,
+  closeSettingsRequestSchema,
+  hidePopoverRequestSchema,
+  openSettingsRequestSchema,
+  openWorkspaceRequestSchema,
+  pickFilesRequestSchema,
+  resizePopoverRequestSchema
+} from "../../shared/ipc/contracts.js";
+import { toIpcError } from "../../shared/errors/app-error.js";
 import { handlers, type HandlerContext } from "./handler-registry.js";
+import { createWindowManager, type WindowManager } from "./window-manager.js";
 
-const createMainWindow = async (): Promise<BrowserWindow> => {
-  // E2E launches hide the window so repeated scenarios do not flash on the
-  // desktop. Playwright still drives the renderer through CDP; disabling
-  // background throttling keeps timers/rendering active while hidden.
-  const hideWindow = process.env.FILE_PILOT_E2E_HIDE_WINDOW === "1";
-  const win = new BrowserWindow({
-    width: 1024,
-    height: 720,
-    ...(hideWindow ? { show: false, skipTaskbar: true } : {}),
-    webPreferences: {
-      preload: join(__dirname, "preload.cjs"),
-      ...(hideWindow ? { backgroundThrottling: false } : {})
-    }
-  });
+let windowManager: WindowManager | null = null;
 
-  const indexPath = join(__dirname, "../renderer/index.html");
-  await win.loadFile(indexPath);
-  return win;
-};
-
-const registerIpc = (context: HandlerContext): void => {
+const registerIpc = (context: HandlerContext, manager: WindowManager): void => {
   ipcMain.handle(IPC_CHANNELS.analyze, async (_event, payload) => handlers.analyze(context, payload));
   ipcMain.handle(IPC_CHANNELS.apply, async (_event, payload) => handlers.apply(context, payload));
   ipcMain.handle(IPC_CHANNELS.rollback, async (_event, payload) => handlers.rollback(context, payload));
@@ -57,6 +50,66 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.registryArchive, async (_event, payload) => handlers.registryArchive(context, payload));
   ipcMain.handle(IPC_CHANNELS.registryCheckDuplicate, async (_event, payload) => handlers.registryCheckDuplicate(context, payload));
   ipcMain.handle(IPC_CHANNELS.registryProposals, async (_event, payload) => handlers.registryProposals(context, payload));
+
+  ipcMain.handle(IPC_CHANNELS.openSettings, async (_event, payload) => {
+    try {
+      openSettingsRequestSchema.parse(payload);
+      manager.openSettings();
+      return { ok: true, data: { opened: true } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.hidePopover, async (_event, payload) => {
+    try {
+      hidePopoverRequestSchema.parse(payload);
+      manager.hidePopover();
+      return { ok: true, data: { hidden: true } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.closeSettings, async (_event, payload) => {
+    try {
+      closeSettingsRequestSchema.parse(payload);
+      manager.closeSettings();
+      return { ok: true, data: { closed: true } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.openWorkspace, async (_event, payload) => {
+    try {
+      openWorkspaceRequestSchema.parse(payload);
+      await manager.openWorkspace();
+      return { ok: true, data: { opened: true } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.pickFiles, async (_event, payload) => {
+    try {
+      pickFilesRequestSchema.parse(payload);
+      const paths = await manager.pickFiles();
+      return { ok: true, data: { paths } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.resizePopover, async (_event, payload) => {
+    try {
+      const req = resizePopoverRequestSchema.parse(payload);
+      manager.resizePopover(req.height);
+      return { ok: true, data: { height: req.height } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  });
 };
 
 // Birth protocol container directories (governance-design §1.3): the workspace
@@ -101,6 +154,7 @@ const workspaceRoot = hasValue(testWorkspaceRoot)
   ? testWorkspaceRoot
   : join(app.getPath("documents"), "File-Pilot-Workspace");
 const appLogRoot = join(appDataRoot, "logs");
+const hideWindows = process.env.FILE_PILOT_E2E_HIDE_WINDOW === "1";
 
 const context: HandlerContext = {
   appDataRoot,
@@ -158,6 +212,15 @@ process.on("unhandledRejection", async (reason) => {
   });
 });
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    windowManager?.showPopover();
+  });
+}
+
 void app.whenReady().then(async () => {
   delete process.env.ELECTRON_RUN_AS_NODE;
 
@@ -188,8 +251,32 @@ void app.whenReady().then(async () => {
 
   ensureRegistryContainers(workspaceRoot);
 
-  registerIpc(context);
-  await createMainWindow();
+  const manager = createWindowManager({
+    preloadPath: join(__dirname, "preload.cjs"),
+    rendererHtmlPath: join(__dirname, "../renderer/index.html"),
+    assetsDir: join(__dirname, "assets"),
+    workspaceRoot,
+    hideWindows,
+    enableTray: !hideWindows
+  });
+  windowManager = manager;
+
+  registerIpc(context, manager);
+
+  const settings = await loadSettings(join(appDataRoot, "settings")).catch(() => null);
+  const showFirstRun = !hideWindows
+    && settings !== null
+    && settings.whitelistDirectories.length === 0
+    && !settings.readOnlyMode;
+
+  manager.createPopover({ showOnReady: showFirstRun });
+  if (!hideWindows) {
+    manager.createTray();
+    if (!showFirstRun) {
+      // Tray-only start: the popover stays hidden until the tray icon is clicked.
+      manager.hidePopover();
+    }
+  }
 
   setTimeout(async () => {
     const update = await checkForUpdates({
@@ -216,12 +303,21 @@ void app.whenReady().then(async () => {
   }, UPDATER_CONFIG.checkDelayMs);
 });
 
+// The tray (or the hidden e2e popover) owns the app lifetime. Closing every
+// window must not quit; the tray menu and the explicit Quit action do.
 app.on("window-all-closed", () => {
-  if (process.platform !== "darwin") {
-    app.quit();
+  // Intentionally empty: tray-resident app.
+});
+
+app.on("activate", () => {
+  // macOS convention; on Windows the tray icon owns visibility.
+  if (process.platform === "darwin") {
+    windowManager?.showPopover();
   }
 });
 
 app.on("before-quit", () => {
+  windowManager?.setQuitting();
+  windowManager?.dispose();
   closeAllSqliteDatabases();
 });

@@ -28,7 +28,20 @@ const api: FilePilotApi = {
   registryCreateProject: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryCreateProject, payload),
   registryArchive: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryArchive, payload),
   registryCheckDuplicate: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryCheckDuplicate, payload),
-  registryProposals: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryProposals, payload ?? {})
+  registryProposals: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryProposals, payload ?? {}),
+  openSettings: async () => ipcRenderer.invoke(IPC_CHANNELS.openSettings, {}),
+  hidePopover: async () => ipcRenderer.invoke(IPC_CHANNELS.hidePopover, {}),
+  closeSettings: async () => ipcRenderer.invoke(IPC_CHANNELS.closeSettings, {}),
+  openWorkspace: async () => ipcRenderer.invoke(IPC_CHANNELS.openWorkspace, {}),
+  pickFiles: async () => ipcRenderer.invoke(IPC_CHANNELS.pickFiles, {}),
+  resizePopover: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.resizePopover, payload),
+  onPopoverShown: (callback) => {
+    const listener = (): void => callback();
+    ipcRenderer.on(IPC_CHANNELS.popoverShown, listener);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.popoverShown, listener);
+    };
+  }
 };
 
 contextBridge.exposeInMainWorld("filePilotApi", api);

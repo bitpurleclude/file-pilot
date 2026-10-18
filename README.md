@@ -1,8 +1,11 @@
 # File-Pilot
 
-File-Pilot 是一个基于 Electron + React + TypeScript 的桌面文件整理工具。  
-当前代码实现已覆盖 M2/M3 关键能力与治理层阶段①：
+File-Pilot 是一个**常驻系统托盘**的桌面文件整理工具：点击托盘图标弹出紧凑悬浮窗完成主要动作，设置页在独立窗口中打开。
 
+当前代码实现已覆盖 M2/M3 关键能力与治理层阶段①，并完成托盘化 UI 重构：
+
+- 托盘常驻 + 无边框悬浮窗（按内容自适应高度，点击外部自动收起）
+- 独立设置窗口（侧边栏导航、自动保存状态、规则/更新/日志集中管理）
 - 规则优先 + LLM 主备 + 本地兜底的分类管线
 - 低置信度追问（follow-up）
 - 手工修正沉淀为规则（rule learning）
@@ -16,7 +19,8 @@ File-Pilot 是一个基于 Electron + React + TypeScript 的桌面文件整理�
 
 - 版本：`0.1.0`
 - 包管理器：`npm`
-- 打包目标：Windows NSIS + Portable（`electron-builder`）
+- 打包目标：Windows NSIS + Portable（`electron-builder`），带应用图标与托盘图标
+- 窗口形态：系统托盘 → 悬浮窗 → 独立设置窗口
 - 桌面架构：`Renderer -> IPC Client -> Preload -> Main Handler -> UseCase -> Infra`
 
 ## 技术栈
@@ -71,50 +75,52 @@ npx electron .
 npm run dev
 ```
 
-## 使用说明（界面操作流程）
+## 使用说明（托盘 → 悬浮窗 → 设置）
 
-### 1) 首次启动：设置白名单或只读模式
+### 1) 启动与托盘
 
-1. 启动应用后会检测白名单目录。
-2. 若为空，先在输入框填写允许操作的目录（`;` 分隔多个路径），点击 `Save Whitelist`。
-3. 如果暂时不希望执行真实文件操作，可选择只读模式（Read-only）。
+1. 启动应用后不会弹出大窗口；系统托盘出现 File-Pilot 图标。
+2. 左键托盘图标：显示/隐藏悬浮窗；右键：打开、设置、打开工作区、退出。
+3. 首次启动（白名单为空）会自动弹出悬浮窗，展示三步白名单向导。
+4. 悬浮窗点击外部或按 `Esc` 收起；再次点击托盘恢复。
 
-### 2) 导入文件并分析
+### 2) 导入文件
 
-1. 将文件拖入 `Drop files here` 区域。
-2. 点击 `Analyze and Plan`。
-3. 系统会返回分类建议与目标路径计划（默认按 dry-run 流程使用）。
+1. 把文件拖进悬浮窗的 dropzone，或点击 dropzone 打开文件选择器。
+2. 悬浮窗只做接收与预览，文件路径仍通过主进程校验白名单。
+3. 已选文件会显示为紧凑的 chip；超过 3 个显示数量。
 
-### 3) 处理低置信度结果（Follow-up）
+### 3) 分析、预演与执行
 
-1. 当出现 `needsFollowUp` 时，输入追问答案（通常是项目名或业务上下文）。
-2. 点击 `Submit Follow-up`。
-3. 前端会同步刷新分析数据，确认 `needsFollowUp` 是否已清空。
+1. `分析并规划` 生成落位计划（规则 → LLM → 兜底）。
+2. 计划卡展示前 4 个文件、目标坐标/路径与置信度。
+3. `预演` 只验证不落盘；`执行计划` 需要第二次点击“确认移动”才真正移动文件。
+4. `回滚` 撤销当前会话已执行的操作。
 
-### 4) 手工修正并沉淀规则
+### 4) 追问与修正
 
-1. 选择修正 `Purpose`、`Project`。
-2. 勾选 `Save as rule`（可选）。
-3. 点击 `Save Correction`。
-4. 若保存为规则，规则会加入规则列表，可在规则面板启停。
+1. 低置信度时悬浮窗内直接出现追问输入；提交后刷新计划。
+2. 修正面板可调整首个文件的 Purpose/Project，并可选“保存为规则”。
+3. 追问/修正命中登记册坐标时保持 coordinated 落位；`NEW:` 仍作为建域提案。
 
-### 5) 规则管理
+### 5) 设置窗口
 
-1. 点击 `Refresh Rules` 拉取规则列表。
-2. 对单条规则执行启用/禁用。
-3. 需要调整优先级等字段时，可通过 `updateRule` 接口扩展管理 UI。
+点击悬浮窗右上角齿轮打开独立设置窗口：
 
-### 6) 执行与回滚
+- **通用**：语言、只读模式
+- **分类**：置信度阈值、规则学习
+- **规则**：查看/启停学习到的规则
+- **登记册**：领域/项目、建域查重、`NEW:` 提案
+- **LLM 配置**：供应商、模型策略、连接测试
+- **更新**：通道、检查、下载、安装（安装包带 SHA-512 校验）
+- **日志**：体积状态、导出、清理
+- **高级**：白名单目录（通过 `saveWhitelist` 持久化）
 
-1. 先点击 `Dry-run` 验证计划。
-2. 确认后再执行真实操作（当前接口支持 `move/copy`）。
-3. 若执行后需要撤销，可点击 `Rollback`。
+设置通过 600ms 防抖自动保存，右上角显示“等待修改/保存中/已保存/失败重试”。关闭设置窗口会回到悬浮窗，并刷新只读/语言/白名单状态。
 
-### 7) 日志与更新
+### 6) 退出
 
-1. `Export Logs` 导出日志（支持匿名化）。
-2. `Refresh Log Status` 查看日志体积告警。
-3. `Check/Download/Install Update` 走内置更新流程。
+托盘右键 → `Quit File-Pilot`，或安装更新后自动退出。关闭悬浮窗/设置窗口不会退出应用。
 
 ## 常用命令
 
@@ -165,6 +171,8 @@ npm run dist:win
 - 日志：`fp:export-logs`
 - 更新：`fp:check-updates` / `fp:download-update` / `fp:install-update`
 - 登记册：`fp:registry-list` / `fp:registry-create-area` / `fp:registry-create-project` / `fp:registry-archive` / `fp:registry-check-duplicate` / `fp:registry-proposals`
+- 窗口/外壳：`fp:open-settings` / `fp:hide-popover` / `fp:close-settings` / `fp:open-workspace` / `fp:pick-files` / `fp:resize-popover`
+- 主进程 → 渲染进程事件：`fp:popover-shown`（设置窗口关闭或托盘重新展开时刷新状态）
 
 协议定义见：`apps/desktop/shared/ipc/contracts.ts`
 
@@ -178,6 +186,8 @@ npm run dist:win
 E2E 运行时保障：
 
 - 测试隔离：Playwright Electron 启动 helper 会自动注入 `FILE_PILOT_USER_DATA_DIR` / `FILE_PILOT_WORKSPACE_ROOT` 环境变量并指向临时目录，测试永不触碰 `%APPDATA%` 下真实 userData 与真实文件目录。
+- 隐藏窗口：helper 默认注入 `FILE_PILOT_E2E_HIDE_WINDOW=1`，悬浮窗与设置窗均以 `show:false` 创建，Playwright 仍通过 CDP 驱动；运行 e2e 不会在桌面反复闪窗。
+- 双窗口：`openSettingsWindow(app, popoverPage)` 等待新的设置 BrowserWindow；`closeSettingsWindow(settingsPage)` 关闭并返回悬浮窗。
 - LLM stub：e2e 通过 `helpers/llm-stub.ts` 注入确定性 LLM 分类结果，不依赖外部 LLM 服务，保证场景可离线、可复现。
 
 参考文档：
@@ -192,7 +202,7 @@ E2E 运行时保障：
 npm run dist:win
 ```
 
-`npm run dist:win` 现在同时产出安装版（NSIS）与便携版（Portable）两种包。
+`npm run dist:win` 现在同时产出安装版（NSIS）与便携版（Portable）两种包。安装器/窗口图标来自 `resources/icon.ico`；托盘图标来自 `apps/desktop/electron/assets/tray-icon.png`，构建时复制到 `dist/electron/assets`。`scripts/generate-icons.ps1` 可从同一张绘制源重新生成三者。
 
 产物默认在：
 

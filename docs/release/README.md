@@ -26,6 +26,7 @@
 - [e2e-remediation-20261006.md](./e2e-remediation-20261006.md)：2026-10-06 e2e 整改记录（版本 `0.1.0`，触发分支 `feat/e2e-remediation-20261006`，测试隔离/LLM stub/回滚与 UI e2e/门禁恢复/CI 修正）
 - [registry-stage1-20261017.md](./registry-stage1-20261017.md)：2026-10-17 治理层阶段①（登记册、坐标管线、建域查重、影子模式）
 - [review-fixes-20261018.md](./review-fixes-20261018.md)：2026-10-18 审查修复（beta 更新版本方案、安装包完整性、登记册名称/坐标一致性、`NEW:` 路径、project_id/样本路径、UI reject 与 e2e reporter）
+- [tray-popover-ui-20261018.md](./tray-popover-ui-20261018.md)：2026-10-18 托盘化 UI（托盘入口、自适应悬浮窗、独立设置窗、规则/更新面板、图标与隐藏窗口 e2e）
 
 ## Rollback Path
 

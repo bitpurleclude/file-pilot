@@ -76,10 +76,12 @@
       "package.json"
     ],
     "directories": {
-      "output": "release"
+      "output": "release",
+      "buildResources": "resources"
     },
     "npmRebuild": false,
     "win": {
+      "icon": "resources/icon.ico",
       "signAndEditExecutable": false,
       "target": [
         "nsis",

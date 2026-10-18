@@ -1,10 +1,19 @@
 import * as React from "react";
 import { useTranslation } from "react-i18next";
+import {
+  Cpu,
+  Library,
+  ListChecks,
+  ScrollText,
+  Settings2,
+  SlidersHorizontal,
+  Sparkles,
+  Wrench,
+  X
+} from "lucide-react";
 
 import type { AppSettings } from "../../../shared/types/settings.js";
 import { Button } from "../../components/ui/button.js";
-import { Card, CardContent } from "../../components/ui/card.js";
-import { Separator } from "../../components/ui/separator.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../../components/ui/tabs.js";
 import { AdvancedPanel } from "./panels/advanced-panel.js";
 import { ClassificationPanel } from "./panels/classification-panel.js";
@@ -12,12 +21,15 @@ import { GeneralPanel } from "./panels/general-panel.js";
 import { LlmPanel } from "./panels/llm-panel.js";
 import { LogsPanel } from "./panels/logs-panel.js";
 import { RegistryPanel } from "./panels/registry-panel.js";
+import { RulesPanel } from "./panels/rules-panel.js";
+import { UpdatesPanel } from "./panels/updates-panel.js";
 import { SettingsAutosaveController, type SettingsAutosaveState } from "./settings-autosave-controller.js";
 import type { SettingsDraftChange } from "./settings-change.js";
 
 interface SettingsPageProps {
   settings: AppSettings;
   logStatus: { sizeBytes: number; warn: boolean } | null;
+  notice?: string | null;
   onBack: () => void;
   onSettingsChange: (settings: AppSettings) => void;
   onClearLogs: () => Promise<void>;
@@ -41,6 +53,7 @@ const statusMessageKey = (status: SettingsAutosaveState["status"]): "settings.au
 export const SettingsPage = ({
   settings,
   logStatus,
+  notice,
   onBack,
   onSettingsChange,
   onClearLogs,
@@ -51,8 +64,10 @@ export const SettingsPage = ({
   const [draft, setDraft] = React.useState<AppSettings>(settings);
   const [saveState, setSaveState] = React.useState<SettingsAutosaveState>({ status: "idle" });
   const autosaveRef = React.useRef<SettingsAutosaveController | null>(null);
+  const settingsRef = React.useRef<AppSettings>(settings);
 
   React.useEffect(() => {
+    settingsRef.current = settings;
     setDraft(settings);
   }, [settings]);
 
@@ -64,17 +79,36 @@ export const SettingsPage = ({
         if (window.filePilotApi === undefined) {
           throw new Error("IPC not ready");
         }
+        const api = window.filePilotApi;
 
         // whitelistDirectories is managed through the dedicated saveWhitelist
         // channel and rejected by the strict saveSettings contract.
+        const nextWhitelist = nextSettings.whitelistDirectories;
+        const currentWhitelist = settingsRef.current.whitelistDirectories;
+        const whitelistChanged = JSON.stringify(nextWhitelist) !== JSON.stringify(currentWhitelist);
+        if (whitelistChanged) {
+          if (nextWhitelist.length === 0) {
+            throw new Error("Whitelist cannot be empty");
+          }
+          const whitelistResult = await api.saveWhitelist({ directories: nextWhitelist });
+          if (!whitelistResult.ok) {
+            throw new Error(whitelistResult.error.message);
+          }
+        }
+
         const { whitelistDirectories: _managedBySaveWhitelist, ...patchable } = nextSettings;
-        const result = await window.filePilotApi.saveSettings(patchable);
+        const result = await api.saveSettings(patchable);
         if (!result.ok) {
           throw new Error(result.error.message);
         }
 
-        onSettingsChange(result.data);
-        setDraft(result.data);
+        const merged: AppSettings = {
+          ...result.data,
+          whitelistDirectories: nextWhitelist
+        };
+        settingsRef.current = merged;
+        onSettingsChange(merged);
+        setDraft(merged);
       },
       onStateChange: setSaveState
     });
@@ -91,64 +125,120 @@ export const SettingsPage = ({
   };
 
   return (
-    <main className="container max-w-4xl py-6">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-2xl font-bold">{t("settings.title")}</h1>
-        <div className="flex items-center gap-2">
-          <span
-            data-testid="settings-autosave-status"
-            className={`text-sm ${saveState.status === "error" ? "text-destructive" : "text-muted-foreground"}`}
-          >
-            {t(statusMessageKey(saveState.status), saveState.errorMessage === undefined ? {} : { message: saveState.errorMessage })}
-          </span>
-          {saveState.status === "error" && (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                autosaveRef.current?.retry();
-              }}
-            >
-              {t("settings.autoSave.retry")}
-            </Button>
+    <main className="settings-shell">
+      <Tabs defaultValue="general" orientation="vertical" className="settings-layout">
+        <aside className="settings-sidebar">
+          <div className="settings-brand">
+            <div className="brand-mark brand-mark-large">
+              <Sparkles className="h-4 w-4" strokeWidth={2.2} />
+            </div>
+            <div>
+              <p className="settings-brand-name">File-Pilot</p>
+              <p className="settings-brand-caption">{t("settings.title")}</p>
+            </div>
+          </div>
+
+          <TabsList className="settings-nav">
+            <TabsTrigger value="general" data-testid="settings-tab-general">
+              <Settings2 className="h-4 w-4" />
+              {t("settings.general.title")}
+            </TabsTrigger>
+            <TabsTrigger value="classification" data-testid="settings-tab-classification">
+              <SlidersHorizontal className="h-4 w-4" />
+              {t("settings.classification.title")}
+            </TabsTrigger>
+            <TabsTrigger value="rules" data-testid="settings-tab-rules">
+              <ListChecks className="h-4 w-4" />
+              {t("settings.rules.title")}
+            </TabsTrigger>
+            <TabsTrigger value="registry" data-testid="settings-tab-registry">
+              <Library className="h-4 w-4" />
+              {t("registry.tabTitle")}
+            </TabsTrigger>
+            <TabsTrigger value="llm" data-testid="settings-tab-llm">
+              <Cpu className="h-4 w-4" />
+              {t("settings.llm.title")}
+            </TabsTrigger>
+            <TabsTrigger value="updates" data-testid="settings-tab-updates">
+              <Wrench className="h-4 w-4" />
+              {t("settings.updates.title")}
+            </TabsTrigger>
+            <TabsTrigger value="logs" data-testid="settings-tab-logs">
+              <ScrollText className="h-4 w-4" />
+              {t("settings.logsSettings.title")}
+            </TabsTrigger>
+            <TabsTrigger value="advanced" data-testid="settings-tab-advanced">
+              <Wrench className="h-4 w-4" />
+              {t("settings.advanced.title")}
+            </TabsTrigger>
+          </TabsList>
+
+          <div className="settings-sidebar-footer">
+            <span className="status-dot" />
+            Local-first · v0.1.0
+          </div>
+        </aside>
+
+        <section className="settings-main">
+          <header className="settings-header">
+            <div>
+              <p className="eyebrow">File-Pilot</p>
+              <h2>{t("settings.title")}</h2>
+            </div>
+            <div className="settings-header-actions">
+              <span
+                data-testid="settings-autosave-status"
+                className={`settings-save-status${saveState.status === "error" ? " is-error" : ""}`}
+              >
+                {t(statusMessageKey(saveState.status), saveState.errorMessage === undefined ? {} : { message: saveState.errorMessage })}
+              </span>
+              {saveState.status === "error" && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    autosaveRef.current?.retry();
+                  }}
+                >
+                  {t("settings.autoSave.retry")}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                size="icon"
+                aria-label={t("settings.back")}
+                data-testid="settings-back"
+                onClick={onBack}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </header>
+
+          {notice !== null && notice !== undefined && notice.length > 0 && (
+            <p className="settings-notice">{notice}</p>
           )}
-          <Button variant="outline" aria-label={t("settings.back")} data-testid="settings-back" onClick={onBack}>
-            {t("settings.back")}
-          </Button>
-        </div>
-      </div>
 
-      <Separator className="mb-6" />
-
-      <Tabs defaultValue="general">
-        <TabsList className="mb-4">
-          <TabsTrigger value="general" data-testid="settings-tab-general">{t("settings.general.title")}</TabsTrigger>
-          <TabsTrigger value="classification" data-testid="settings-tab-classification">{t("settings.classification.title")}</TabsTrigger>
-          <TabsTrigger value="registry" data-testid="settings-tab-registry">{t("registry.tabTitle")}</TabsTrigger>
-          <TabsTrigger value="llm" data-testid="settings-tab-llm">{t("settings.llm.title")}</TabsTrigger>
-          <TabsTrigger value="logs" data-testid="settings-tab-logs">{t("settings.logsSettings.title")}</TabsTrigger>
-          <TabsTrigger value="advanced" data-testid="settings-tab-advanced">{t("settings.advanced.title")}</TabsTrigger>
-        </TabsList>
-
-        <Card>
-          <CardContent className="pt-6">
-            <TabsContent value="general">
+          <div className="settings-content">
+            <TabsContent value="general" className="mt-0">
               <GeneralPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
-
-            <TabsContent value="classification">
+            <TabsContent value="classification" className="mt-0">
               <ClassificationPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
-
-            <TabsContent value="registry">
+            <TabsContent value="rules" className="mt-0">
+              <RulesPanel />
+            </TabsContent>
+            <TabsContent value="registry" className="mt-0">
               <RegistryPanel />
             </TabsContent>
-
-            <TabsContent value="llm">
+            <TabsContent value="llm" className="mt-0">
               <LlmPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
-
-            <TabsContent value="logs">
+            <TabsContent value="updates" className="mt-0">
+              <UpdatesPanel />
+            </TabsContent>
+            <TabsContent value="logs" className="mt-0">
               <LogsPanel
                 logStatus={logStatus}
                 onClearLogs={onClearLogs}
@@ -156,12 +246,11 @@ export const SettingsPage = ({
                 onRefreshLogStatus={onRefreshLogStatus}
               />
             </TabsContent>
-
-            <TabsContent value="advanced">
+            <TabsContent value="advanced" className="mt-0">
               <AdvancedPanel settings={draft} onChange={handleDraftChange} />
             </TabsContent>
-          </CardContent>
-        </Card>
+          </div>
+        </section>
       </Tabs>
     </main>
   );

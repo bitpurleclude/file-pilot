@@ -91,6 +91,15 @@ export interface FilePilotApi {
   registryArchive(payload: { kind: "area" | "project"; id: string }): Promise<RegistryIpcResult<RegistryArchiveData>>;
   registryCheckDuplicate(payload: { name: string }): Promise<RegistryIpcResult<RegistryCheckDuplicateData>>;
   registryProposals(payload?: { limit?: number }): Promise<RegistryIpcResult<RegistryProposalsData>>;
+  // Tray-first window/shell actions.
+  openSettings(): Promise<IpcResult<{ opened: boolean }>>;
+  hidePopover(): Promise<IpcResult<{ hidden: boolean }>>;
+  closeSettings(): Promise<IpcResult<{ closed: boolean }>>;
+  openWorkspace(): Promise<IpcResult<{ opened: boolean }>>;
+  pickFiles(): Promise<IpcResult<{ paths: string[] }>>;
+  resizePopover(payload: { height: number }): Promise<IpcResult<{ height: number }>>;
+  /** Subscribe to popover-shown refreshes; returns an unsubscribe function. */
+  onPopoverShown(callback: () => void): () => void;
 }
 
 declare global {

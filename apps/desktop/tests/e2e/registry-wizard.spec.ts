@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { expect, test, type Page } from "@playwright/test";
 
 import { REGISTRY_CONFIG } from "../../shared/config/registry.config.js";
-import { launchElectronApp } from "./helpers/electron-launch.js";
+import { launchElectronApp, openSettingsWindow } from "./helpers/electron-launch.js";
 import type { IsolatedElectronApplication } from "./helpers/electron-launch.js";
 
 // Electron launches are slow; the wizard flow makes several IPC round trips.
@@ -16,11 +16,15 @@ const firstWindow = async (app: IsolatedElectronApplication): Promise<Page> => {
   return page;
 };
 
-const openRegistryTab = async (page: Page): Promise<void> => {
-  await page.locator('[data-testid="open-settings"]').click();
-  await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
-  await page.locator('[data-testid="settings-tab-registry"]').click();
-  await expect(page.locator('[data-testid="registry-new-area-name"]')).toBeVisible();
+const openRegistryTab = async (
+  app: IsolatedElectronApplication,
+  popoverPage: Page
+): Promise<Page> => {
+  const settingsPage = await openSettingsWindow(app, popoverPage);
+  await expect(settingsPage.getByRole("heading", { name: "设置" })).toBeVisible();
+  await settingsPage.locator('[data-testid="settings-tab-registry"]').click();
+  await expect(settingsPage.locator('[data-testid="registry-new-area-name"]')).toBeVisible();
+  return settingsPage;
 };
 
 const areaRow = (page: Page, label: string) =>
@@ -33,7 +37,7 @@ test("建域向导：容器目录、自动编号、exact 阻断、similar 警告
   const electronApp = await launchElectronApp();
 
   try {
-    const page = await firstWindow(electronApp);
+    const popover = await firstWindow(electronApp);
 
     // 启动即创建保留容器目录（与向导流程共用一次启动，避免重复弹窗）。
     const workspaceRoot = electronApp.launchDirs.workspaceRoot;
@@ -45,7 +49,7 @@ test("建域向导：容器目录、自动编号、exact 阻断、similar 警告
       expect(existsSync(join(workspaceRoot, container)), `missing container dir: ${container}`).toBe(true);
     }
 
-    await openRegistryTab(page);
+    const page = await openRegistryTab(electronApp, popover);
 
     // 空态
     await expect(page.locator('[data-testid="registry-empty"]')).toBeVisible();

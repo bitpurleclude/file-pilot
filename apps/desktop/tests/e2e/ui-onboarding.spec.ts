@@ -39,9 +39,10 @@ test("first-run wizard completes the full whitelist setup flow", async () => {
     await expect(wizard).toBeVisible();
     await expect(wizard.getByRole("heading", { name: /首次运行 - 白名单配置/ })).toBeVisible();
 
-    // The main-page whitelist input shares state with the wizard input.
-    await page.locator("#whitelist-directories").fill(sandbox);
-    await expect(page.locator("#wizard-whitelist-input")).toHaveValue(sandbox);
+    // The wizard input is the single whitelist entry point in the popover.
+    const wizardInput = page.locator("#wizard-whitelist-input");
+    await wizardInput.fill(sandbox);
+    await expect(wizardInput).toHaveValue(sandbox);
 
     // Step 1 -> Step 2: risk acknowledgement.
     await wizard.getByRole("button", { name: "下一步" }).click();

@@ -1,19 +1,19 @@
-import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
-import { Settings } from "lucide-react";
+import { FileText, Play, Sparkles } from "lucide-react";
 
 import type { AppSettings } from "../../shared/types/settings.js";
-import type { ClassificationRule } from "../../shared/types/rules.js";
-import type { UpdateInfo } from "../../shared/types/updater.js";
 import type { Purpose } from "../../shared/types/workflow.js";
 import { Button } from "../components/ui/button.js";
 import { mergeAnalyzeData } from "./analyze-state.js";
 import { ClassificationFeedbackPanel } from "./components/classification-feedback-panel.js";
 import { FirstRunWizard } from "./components/first-run-wizard.js";
-import { RuleManagementPanel } from "./components/rule-management-panel.js";
-import { SettingsPage } from "./settings/settings-page.js";
+import { FileDropzone } from "./popover/file-dropzone.js";
+import { PlanCard } from "./popover/plan-card.js";
+import { PopoverFooter } from "./popover/popover-footer.js";
+import { PopoverHeader } from "./popover/popover-header.js";
+import { usePopoverSizing } from "./popover/use-popover-sizing.js";
 import type { AnalyzeData, SaveCorrectionsData, SubmitFollowupData } from "./types.js";
-import { deriveUpdateButtonState, resolveUpdateCheckMessage, type UpdateFlowState } from "./update-controls.js";
 
 const genSessionId = (): string => crypto.randomUUID();
 
@@ -23,6 +23,11 @@ const parseDroppedFiles = (event: DragEvent<HTMLDivElement>): string[] => {
     const maybePath = (file as File & { path?: string }).path;
     return maybePath ?? file.name;
   });
+};
+
+const basenameOf = (path: string): string => {
+  const parts = path.split(/[\\/]/);
+  return parts[parts.length - 1] ?? path;
 };
 
 const purposeOptions: Purpose[] = [
@@ -41,91 +46,145 @@ const purposeOptions: Purpose[] = [
 
 export const App = (): JSX.Element => {
   const { t, i18n } = useTranslation();
-  const [currentPage, setCurrentPage] = useState<"main" | "settings">("main");
-  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const { cardRef, contentRef } = usePopoverSizing();
   const [sessionId, setSessionId] = useState<string>(genSessionId());
   const [filePaths, setFilePaths] = useState<string[]>([]);
   const [message, setMessage] = useState<string>("");
-  const [anonymize, setAnonymize] = useState<boolean>(true);
   const [whitelistInput, setWhitelistInput] = useState<string>("");
   const [wizardVisible, setWizardVisible] = useState<boolean>(false);
   const [wizardStep, setWizardStep] = useState<1 | 2 | 3>(1);
   const [riskAccepted, setRiskAccepted] = useState<boolean>(false);
-  const [logStatus, setLogStatus] = useState<{ sizeBytes: number; warn: boolean } | null>(null);
   const [readOnlyMode, setReadOnlyMode] = useState<boolean>(false);
-  const [updateChannel, setUpdateChannel] = useState<"beta" | "stable">("beta");
-  const [updateCheckResult, setUpdateCheckResult] = useState<UpdateInfo | null>(null);
-  const [updateFlowState, setUpdateFlowState] = useState<UpdateFlowState>("idle");
-  const [latestVersion, setLatestVersion] = useState<string | null>(null);
-  const [downloadedInstallerPath, setDownloadedInstallerPath] = useState<string | null>(null);
   const [analyzeData, setAnalyzeData] = useState<AnalyzeData | null>(null);
   const [followupAnswer, setFollowupAnswer] = useState<string>("");
   const [correctionPurpose, setCorrectionPurpose] = useState<Purpose>("Documents");
   const [correctionProject, setCorrectionProject] = useState<string>("Default Project");
   const [saveAsRule, setSaveAsRule] = useState<boolean>(true);
-  const [rules, setRules] = useState<ClassificationRule[]>([]);
+  const [applyConfirm, setApplyConfirm] = useState<boolean>(false);
+  const [dragActive, setDragActive] = useState<boolean>(false);
+  const bootstrappedRef = useRef<boolean>(false);
 
   const canAnalyze = useMemo(() => filePaths.length > 0 && !readOnlyMode, [filePaths, readOnlyMode]);
-  const updateButtonState = useMemo(
-    () => deriveUpdateButtonState({
-      flowState: updateFlowState,
-      checkResult: updateCheckResult,
-      downloadedInstallerPath
-    }),
-    [downloadedInstallerPath, updateCheckResult, updateFlowState]
-  );
   const firstItemId = analyzeData?.items[0]?.item.id;
 
-  // Depends on the language instead of `t`: the `t` reference changes on every
-  // languageChanged event, which made this effect overwrite handler-written
-  // messages right after they were set.
-  useEffect(() => {
-    setMessage(t("app.dropMessage"));
-  }, [i18n.language]);
+  const applySettings = useCallback((settings: AppSettings): void => {
+    setReadOnlyMode(settings.readOnlyMode);
+    setWhitelistInput(settings.whitelistDirectories.join(";"));
+
+    if (settings.language !== undefined && i18n.language !== settings.language) {
+      void i18n.changeLanguage(settings.language);
+    }
+
+    if (settings.whitelistDirectories.length === 0) {
+      if (!settings.readOnlyMode) {
+        setWizardVisible(true);
+      }
+    } else {
+      setWizardVisible(false);
+      setMessage(t("app.dropMessage"));
+    }
+  }, [i18n, t]);
 
   useEffect(() => {
+    setMessage(t("app.dropMessage"));
+  }, [i18n.language, t]);
+
+  useEffect(() => {
+    if (bootstrappedRef.current) {
+      return;
+    }
+    bootstrappedRef.current = true;
+
     const bootstrap = async (): Promise<void> => {
-      if (window.filePilotApi === undefined) {
+      const api = window.filePilotApi;
+      if (api === undefined) {
         return;
       }
 
-      const settingsResult = await window.filePilotApi.getSettings();
-      if (settingsResult.ok) {
-        setAppSettings(settingsResult.data);
-        setReadOnlyMode(settingsResult.data.readOnlyMode);
-
-        // Only switch when the language actually differs: changeLanguage emits
-        // languageChanged even for the same language, which cycled this effect
-        // forever and rolled back every settings draft before autosave.
-        if (settingsResult.data.language !== undefined && i18n.language !== settingsResult.data.language) {
-          void i18n.changeLanguage(settingsResult.data.language);
-        }
-
-        if (settingsResult.data.whitelistDirectories.length === 0) {
-          if (!settingsResult.data.readOnlyMode) {
-            setWizardVisible(true);
-            setMessage(t("app.firstRunDetected"));
-          } else {
-            setMessage(t("app.readOnlyLater"));
-          }
-        } else {
-          setWhitelistInput(settingsResult.data.whitelistDirectories.join(";"));
-        }
+      const settingsResult = await api.getSettings();
+      if (!settingsResult.ok) {
+        setMessage(t("app.analyzeFailed", { message: settingsResult.error.message }));
+        return;
       }
 
-      const logStatusResult = await window.filePilotApi.getLogStatus();
-      if (logStatusResult.ok) {
-        setLogStatus(logStatusResult.data);
+      applySettings(settingsResult.data);
+      if (settingsResult.data.whitelistDirectories.length === 0) {
+        setMessage(settingsResult.data.readOnlyMode ? t("app.readOnlyLater") : t("app.firstRunDetected"));
       }
     };
 
     void bootstrap();
-  }, [i18n, t]);
+  }, [applySettings, t]);
+
+  useEffect(() => {
+    const api = window.filePilotApi;
+    if (api === undefined || api.onPopoverShown === undefined) {
+      return;
+    }
+
+    return api.onPopoverShown(() => {
+      void (async () => {
+        const result = await api.getSettings();
+        if (result.ok) {
+          applySettings(result.data);
+        }
+      })();
+    });
+  }, [applySettings]);
+
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key === "Escape") {
+        void window.filePilotApi?.hidePopover();
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
+
+  const receiveFiles = (paths: string[]): void => {
+    if (paths.length === 0) {
+      return;
+    }
+    setFilePaths(paths);
+    setAnalyzeData(null);
+    setApplyConfirm(false);
+    setMessage(t("app.filesReceived"));
+  };
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
-    setFilePaths(parseDroppedFiles(event));
-    setMessage(t("app.filesReceived"));
+    setDragActive(false);
+    receiveFiles(parseDroppedFiles(event));
+  };
+
+  const onPickFiles = async (): Promise<void> => {
+    const api = window.filePilotApi;
+    if (api === undefined) {
+      setMessage(t("app.ipcNotReady"));
+      return;
+    }
+    const result = await api.pickFiles();
+    if (!result.ok) {
+      setMessage(t("app.analyzeFailed", { message: result.error.message }));
+      return;
+    }
+    receiveFiles(result.data.paths);
+  };
+
+  const onOpenSettings = async (): Promise<void> => {
+    await window.filePilotApi?.openSettings();
+  };
+
+  const onHidePopover = async (): Promise<void> => {
+    await window.filePilotApi?.hidePopover();
+  };
+
+  const onOpenWorkspace = async (): Promise<void> => {
+    const result = await window.filePilotApi?.openWorkspace();
+    if (result !== undefined && !result.ok) {
+      setMessage(t("app.analyzeFailed", { message: result.error.message }));
+    }
   };
 
   const onAnalyze = async (): Promise<void> => {
@@ -139,6 +198,7 @@ export const App = (): JSX.Element => {
       return;
     }
 
+    setApplyConfirm(false);
     const result = await window.filePilotApi.analyze({ sessionId, filePaths });
     if (!result.ok) {
       setMessage(t("app.analyzeFailed", { message: result.error.message }));
@@ -146,8 +206,7 @@ export const App = (): JSX.Element => {
     }
 
     setAnalyzeData(result.data);
-    const data = result.data;
-    setMessage(data.needsFollowUp ? t("app.analyzeCompletedFollowup") : t("app.analyzeCompleted"));
+    setMessage(result.data.needsFollowUp ? t("app.analyzeCompletedFollowup") : t("app.analyzeCompleted"));
   };
 
   const onSubmitFollowup = async (): Promise<void> => {
@@ -191,52 +250,7 @@ export const App = (): JSX.Element => {
 
     const data = result.data as SaveCorrectionsData;
     setAnalyzeData((current) => mergeAnalyzeData(current, data));
-    if (data.rule !== undefined) {
-      const createdRule = data.rule;
-      setRules((current) => {
-        const existingIndex = current.findIndex((item) => item.id === createdRule.id);
-        if (existingIndex === -1) {
-          return [createdRule, ...current];
-        }
-
-        return current.map((item, index) => (index === existingIndex ? createdRule : item));
-      });
-    }
-
     setMessage(saveAsRule ? t("app.correctionSavedRule") : t("app.correctionSaved"));
-  };
-
-  const onListRules = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      return;
-    }
-
-    const result = await window.filePilotApi.listRules({ includeDisabled: true });
-    if (!result.ok) {
-      setMessage(t("app.rulesFailed", { message: result.error.message }));
-      return;
-    }
-
-    setRules(result.data);
-    setMessage(t("app.rulesLoaded", { count: result.data.length }));
-  };
-
-  const onToggleRule = async (rule: ClassificationRule): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      return;
-    }
-
-    const result = await window.filePilotApi.updateRule({
-      ruleId: rule.id,
-      enabled: !rule.enabled
-    });
-
-    if (!result.ok) {
-      setMessage(t("app.ruleUpdateFailed", { message: result.error.message }));
-      return;
-    }
-
-    setRules((current) => current.map((item) => (item.id === rule.id ? result.data : item)));
   };
 
   const onSaveWhitelist = async (): Promise<void> => {
@@ -261,7 +275,6 @@ export const App = (): JSX.Element => {
       return;
     }
 
-    // Whitelist saving no longer disables read-only mode implicitly in the main process.
     const readOnlyResult = await window.filePilotApi.setReadOnlyMode({ enabled: false });
     if (!readOnlyResult.ok) {
       setMessage(t("app.readOnlyDisableFailed", { message: readOnlyResult.error.message }));
@@ -271,25 +284,6 @@ export const App = (): JSX.Element => {
     setReadOnlyMode(false);
     setWizardVisible(false);
     setMessage(t("app.whitelistSaved"));
-  };
-
-  const onClearLogs = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      return;
-    }
-
-    const result = await window.filePilotApi.clearLogs();
-    if (!result.ok) {
-      setMessage(t("app.logsClearFailed", { message: result.error.message }));
-      return;
-    }
-
-    const status = await window.filePilotApi.getLogStatus();
-    if (status.ok) {
-      setLogStatus(status.data);
-    }
-
-    setMessage(t("app.logsCleared"));
   };
 
   const onEnableReadOnlyMode = async (): Promise<void> => {
@@ -307,18 +301,6 @@ export const App = (): JSX.Element => {
     setReadOnlyMode(true);
     setWizardVisible(false);
     setMessage(t("app.readOnlyEnabled"));
-  };
-
-  const onRefreshLogStatus = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      return;
-    }
-
-    const status = await window.filePilotApi.getLogStatus();
-    if (status.ok) {
-      setLogStatus(status.data);
-      setMessage(status.data.warn ? t("app.logStatusWarn") : t("app.logStatusOk"));
-    }
   };
 
   const onApplyDryRun = async (): Promise<void> => {
@@ -344,6 +326,36 @@ export const App = (): JSX.Element => {
     setMessage(result.ok ? t("app.dryRunCompleted") : t("app.dryRunFailed", { message: result.error.message }));
   };
 
+  const onApply = async (): Promise<void> => {
+    if (window.filePilotApi === undefined) {
+      return;
+    }
+
+    if (readOnlyMode) {
+      setMessage(t("app.readOnlyBlocksApply"));
+      return;
+    }
+
+    if (analyzeData === null) {
+      setMessage(t("app.applyRequiresAnalyze"));
+      return;
+    }
+
+    if (!applyConfirm) {
+      setApplyConfirm(true);
+      setMessage(t("app.applyConfirm"));
+      return;
+    }
+
+    setApplyConfirm(false);
+    const result = await window.filePilotApi.apply({
+      sessionId: analyzeData.sessionId,
+      action: "move",
+      dryRun: false
+    });
+    setMessage(result.ok ? t("app.applyCompleted") : t("app.applyFailed", { message: result.error.message }));
+  };
+
   const onRollback = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
       return;
@@ -359,252 +371,124 @@ export const App = (): JSX.Element => {
       return;
     }
 
+    setApplyConfirm(false);
     const result = await window.filePilotApi.rollback({ sessionId: analyzeData.sessionId });
     setMessage(result.ok ? t("app.rollbackCompleted") : t("app.rollbackFailed", { message: result.error.message }));
   };
 
-  const onExportLogs = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      return;
-    }
-
-    const result = await window.filePilotApi.exportLogs({ anonymize });
-    setMessage(result.ok ? t("app.logsExported", { path: result.data.path }) : t("app.logsExportFailed", { message: result.error.message }));
+  const onNewSession = (): void => {
+    setSessionId(genSessionId());
+    setFilePaths([]);
+    setAnalyzeData(null);
+    setApplyConfirm(false);
+    setFollowupAnswer("");
+    setMessage(t("app.dropMessage"));
   };
-
-  const onUpdateChannelChange = (channel: "beta" | "stable"): void => {
-    setUpdateChannel(channel);
-    setUpdateCheckResult(null);
-    setDownloadedInstallerPath(null);
-    setLatestVersion(null);
-  };
-
-  const onCheckUpdates = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      setMessage(t("app.ipcNotReady"));
-      return;
-    }
-
-    setUpdateFlowState("checking");
-    setMessage(t("app.checkingUpdates"));
-    const result = await window.filePilotApi.checkUpdates({ channel: updateChannel });
-    setUpdateFlowState("idle");
-    if (!result.ok) {
-      setMessage(t("app.checkUpdatesFailed", { message: result.error.message }));
-      return;
-    }
-
-    setUpdateCheckResult(result.data);
-    setLatestVersion(result.data.latestVersion ?? null);
-    setDownloadedInstallerPath(null);
-
-    const updateMessage = resolveUpdateCheckMessage(result.data, updateChannel);
-    setMessage(
-      updateMessage.params === undefined
-        ? t(updateMessage.key)
-        : t(updateMessage.key, updateMessage.params)
-    );
-  };
-
-  const onDownloadUpdate = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      setMessage(t("app.ipcNotReady"));
-      return;
-    }
-
-    if (!updateButtonState.canDownload) {
-      setMessage(t("app.downloadNotReady"));
-      return;
-    }
-
-    setUpdateFlowState("downloading");
-    setMessage(t("app.downloadingUpdate"));
-    const result = await window.filePilotApi.downloadUpdate({ channel: updateChannel });
-    setUpdateFlowState("idle");
-    if (!result.ok) {
-      setMessage(t("app.downloadUpdateFailed", { message: `${result.error.code}: ${result.error.message}` }));
-      return;
-    }
-
-    setDownloadedInstallerPath(result.data.installerPath);
-    setLatestVersion(result.data.version);
-    setMessage(t("app.updateDownloaded", { version: result.data.version }));
-  };
-
-  const onInstallUpdate = async (): Promise<void> => {
-    if (window.filePilotApi === undefined) {
-      setMessage(t("app.ipcNotReady"));
-      return;
-    }
-
-    if (downloadedInstallerPath === null) {
-      setMessage(t("app.downloadFirst"));
-      return;
-    }
-
-    setUpdateFlowState("installing");
-    setMessage(t("app.installingUpdate"));
-    const result = await window.filePilotApi.installUpdate({ installerPath: downloadedInstallerPath });
-    setUpdateFlowState("idle");
-    if (!result.ok) {
-      setMessage(t("app.installUpdateFailed", { message: `${result.error.code}: ${result.error.message}` }));
-      return;
-    }
-
-    setMessage(t("app.installerLaunched"));
-  };
-
-  // Stable identity: SettingsPage rebuilds its autosave controller whenever
-  // this prop changes, which would dispose an in-flight save and swallow the
-  // "saved" status indicator.
-  const handleSettingsChange = useCallback((updated: AppSettings): void => {
-    setAppSettings(updated);
-    setReadOnlyMode(updated.readOnlyMode);
-    setWhitelistInput(updated.whitelistDirectories.join(";"));
-  }, []);
-
-  if (currentPage === "settings" && appSettings !== null) {
-    return (
-      <SettingsPage
-        settings={appSettings}
-        logStatus={logStatus}
-        onBack={() => setCurrentPage("main")}
-        onSettingsChange={handleSettingsChange}
-        onClearLogs={onClearLogs}
-        onExportLogs={onExportLogs}
-        onRefreshLogStatus={onRefreshLogStatus}
-      />
-    );
-  }
 
   return (
-    <main className="container">
-      <div className="flex items-center justify-between mb-4">
-        <h1>{t("app.title")}</h1>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label={t("settings.title")}
-          data-testid="open-settings"
-          onClick={() => setCurrentPage("settings")}
-        >
-          <Settings className="h-5 w-5" />
-        </Button>
-      </div>
-      <p data-testid="app-message">{message}</p>
-
-      <FirstRunWizard
-        visible={wizardVisible}
-        step={wizardStep}
-        whitelistInput={whitelistInput}
-        riskAccepted={riskAccepted}
-        onWhitelistInputChange={setWhitelistInput}
-        onRiskAcceptedChange={setRiskAccepted}
-        onStepChange={setWizardStep}
-        onSkipReadOnly={onEnableReadOnlyMode}
-        onSaveWhitelist={onSaveWhitelist}
-      />
-
-      <section
-        className="dropzone"
-        data-testid="dropzone"
-        onDragOver={(event) => event.preventDefault()}
-        onDrop={onDrop}
-      >
-        {t("dropzone.hint")}
-      </section>
-
-      <div className="controls">
-        <input
-          id="whitelist-directories"
-          name="whitelistDirectories"
-          placeholder={t("whitelist.placeholder")}
-          value={whitelistInput}
-          onChange={(event) => setWhitelistInput(event.target.value)}
+    <div className="popover-stage">
+      <div ref={cardRef} className="popover-card">
+        <PopoverHeader
+          readOnly={readOnlyMode}
+          onOpenSettings={() => { void onOpenSettings(); }}
+          onHide={() => { void onHidePopover(); }}
         />
-        <button onClick={onSaveWhitelist}>{t("whitelist.save")}</button>
+
+        <div className="popover-body">
+          <div ref={contentRef} className="popover-content">
+            <p data-testid="app-message" className="status-line" aria-live="polite">
+              {message}
+            </p>
+
+            <FirstRunWizard
+              visible={wizardVisible}
+              step={wizardStep}
+              whitelistInput={whitelistInput}
+              riskAccepted={riskAccepted}
+              onWhitelistInputChange={setWhitelistInput}
+              onRiskAcceptedChange={setRiskAccepted}
+              onStepChange={setWizardStep}
+              onSkipReadOnly={() => { void onEnableReadOnlyMode(); }}
+              onSaveWhitelist={() => { void onSaveWhitelist(); }}
+            />
+
+            <FileDropzone
+              dragActive={dragActive}
+              fileCount={filePaths.length}
+              onDragEnter={(event) => { event.preventDefault(); setDragActive(true); }}
+              onDragOver={(event) => event.preventDefault()}
+              onDragLeave={() => setDragActive(false)}
+              onDrop={onDrop}
+              onPickFiles={() => { void onPickFiles(); }}
+            />
+
+            {filePaths.length > 0 && (
+              <div className="file-strip">
+                {filePaths.slice(0, 3).map((path) => (
+                  <span key={path} className="file-chip" title={path}>
+                    <FileText className="h-3 w-3" />
+                    {basenameOf(path)}
+                  </span>
+                ))}
+                {filePaths.length > 3 && <span className="file-chip">+{filePaths.length - 3}</span>}
+              </div>
+            )}
+
+            <div className="action-row">
+              <Button
+                className="primary-action flex-1"
+                onClick={() => { void onAnalyze(); }}
+                disabled={!canAnalyze}
+              >
+                <Sparkles className="h-4 w-4" />
+                {t("actions.analyze")}
+              </Button>
+              <Button
+                variant="outline"
+                className="secondary-action"
+                onClick={() => { void onApplyDryRun(); }}
+                disabled={analyzeData === null || readOnlyMode}
+              >
+                <Play className="h-4 w-4" />
+                {t("actions.dryRun")}
+              </Button>
+            </div>
+
+            {analyzeData !== null && (
+              <PlanCard
+                analyzeData={analyzeData}
+                applyConfirm={applyConfirm}
+                readOnly={readOnlyMode}
+                onApply={() => { void onApply(); }}
+                onRollback={() => { void onRollback(); }}
+              />
+            )}
+
+            <div className="refine-card">
+              <ClassificationFeedbackPanel
+                analyzeData={analyzeData}
+                firstItemId={firstItemId}
+                followupAnswer={followupAnswer}
+                onFollowupAnswerChange={setFollowupAnswer}
+                onSubmitFollowup={() => { void onSubmitFollowup(); }}
+                correctionPurpose={correctionPurpose}
+                purposeOptions={purposeOptions}
+                onCorrectionPurposeChange={setCorrectionPurpose}
+                correctionProject={correctionProject}
+                onCorrectionProjectChange={setCorrectionProject}
+                saveAsRule={saveAsRule}
+                onSaveAsRuleChange={setSaveAsRule}
+                onSaveCorrection={() => { void onSaveCorrection(); }}
+              />
+            </div>
+
+            <PopoverFooter
+              onOpenWorkspace={() => { void onOpenWorkspace(); }}
+              onNewSession={onNewSession}
+            />
+          </div>
+        </div>
       </div>
-
-      <div className="controls">
-        <button onClick={onAnalyze} disabled={!canAnalyze}>
-          {t("actions.analyze")}
-        </button>
-        <button onClick={onApplyDryRun} disabled={readOnlyMode}>
-          {t("actions.dryRun")}
-        </button>
-        <button onClick={onRollback} disabled={readOnlyMode}>
-          {t("actions.rollback")}
-        </button>
-      </div>
-
-      <ClassificationFeedbackPanel
-        analyzeData={analyzeData}
-        firstItemId={firstItemId}
-        followupAnswer={followupAnswer}
-        onFollowupAnswerChange={setFollowupAnswer}
-        onSubmitFollowup={onSubmitFollowup}
-        correctionPurpose={correctionPurpose}
-        purposeOptions={purposeOptions}
-        onCorrectionPurposeChange={setCorrectionPurpose}
-        correctionProject={correctionProject}
-        onCorrectionProjectChange={setCorrectionProject}
-        saveAsRule={saveAsRule}
-        onSaveAsRuleChange={setSaveAsRule}
-        onSaveCorrection={onSaveCorrection}
-      />
-
-      <RuleManagementPanel
-        rules={rules}
-        onRefreshRules={onListRules}
-        onToggleRule={onToggleRule}
-      />
-
-      <div className="controls">
-        <label>
-          {t("updates.channelLabel")}
-          <select
-            id="update-channel"
-            name="updateChannel"
-            value={updateChannel}
-            onChange={(event) => onUpdateChannelChange(event.target.value as "beta" | "stable")}
-          >
-            <option value="beta">{t("updates.beta")}</option>
-            <option value="stable">{t("updates.stable")}</option>
-          </select>
-        </label>
-        <label>
-          <input
-            id="anonymize-logs"
-            name="anonymizeLogs"
-            type="checkbox"
-            checked={anonymize}
-            onChange={(event) => setAnonymize(event.target.checked)}
-          />
-          {t("logs.anonymize")}
-        </label>
-        <button onClick={onExportLogs}>{t("logs.export")}</button>
-        <button onClick={onRefreshLogStatus}>{t("logs.refreshStatus")}</button>
-        <button onClick={onClearLogs}>{t("logs.clear")}</button>
-        <button onClick={onCheckUpdates} disabled={!updateButtonState.canCheck}>{t("updates.check")}</button>
-        <button onClick={onDownloadUpdate} disabled={!updateButtonState.canDownload}>{t("updates.download")}</button>
-        <button onClick={onInstallUpdate} disabled={!updateButtonState.canInstall}>{t("updates.install")}</button>
-        <button onClick={() => setSessionId(genSessionId())}>{t("actions.newSession")}</button>
-      </div>
-
-      {logStatus !== null && (
-        <p>
-          {t("logs.sizeBytes", { size: logStatus.sizeBytes })} {logStatus.warn ? t("logs.warn") : t("logs.ok")}
-        </p>
-      )}
-
-      {readOnlyMode && <p data-testid="status-read-only">{t("status.readOnly")}</p>}
-
-      {latestVersion !== null && (
-        <p>
-          {t("status.latestVersion", { version: latestVersion })}
-          {downloadedInstallerPath === null ? ` ${t("status.notDownloaded")}` : ` ${t("status.downloaded")}`}
-        </p>
-      )}
-    </main>
+    </div>
   );
 };

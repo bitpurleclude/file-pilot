@@ -3,7 +3,7 @@ import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { _electron as electron, type ElectronApplication } from "@playwright/test";
+import { _electron as electron, type ElectronApplication, type Page } from "@playwright/test";
 
 interface LaunchElectronAppOptions {
   executablePath?: string;
@@ -160,4 +160,32 @@ export const launchElectronApp = async (
   const isolatedApp = electronApp as IsolatedElectronApplication;
   isolatedApp.launchDirs = launchDirs;
   return isolatedApp;
+};
+
+/**
+ * Opens the separate settings BrowserWindow from the popover gear and returns
+ * its page. The settings window is created hidden under FILE_PILOT_E2E_HIDE_WINDOW,
+ * but its renderer is still fully driven by Playwright.
+ */
+export const openSettingsWindow = async (
+  app: ElectronApplication,
+  popoverPage: Page
+): Promise<Page> => {
+  const windowPromise = app.waitForEvent("window");
+  await popoverPage.locator('[data-testid="open-settings"]').click();
+  const settingsPage = await windowPromise;
+  await settingsPage.waitForLoadState("domcontentloaded");
+  return settingsPage;
+};
+
+/** Closes the settings window and waits for its close event. */
+export const closeSettingsWindow = async (settingsPage: Page): Promise<void> => {
+  const closed = settingsPage.waitForEvent("close");
+  // The click closes the BrowserWindow, so Playwright may reject the click
+  // itself when the target disappears before the acknowledgement.
+  await settingsPage
+    .locator('[data-testid="settings-back"]')
+    .click()
+    .catch(() => undefined);
+  await closed;
 };

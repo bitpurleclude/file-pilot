@@ -34,6 +34,11 @@
     "rollbackRequiresAnalyze": "请先分析文件，再执行回滚",
     "rollbackCompleted": "回滚完成",
     "rollbackFailed": "回滚失败：{{message}}",
+    "readOnlyBlocksApply": "只读模式下无法执行文件操作",
+    "applyRequiresAnalyze": "请先分析文件，再执行计划",
+    "applyConfirm": "再点击一次“确认”才会移动文件",
+    "applyCompleted": "计划已执行",
+    "applyFailed": "执行失败：{{message}}",
     "logsExported": "日志已导出：{{path}}",
     "logsExportFailed": "导出日志失败：{{message}}",
     "checkingUpdates": "正在检查更新...",
@@ -66,8 +71,21 @@
   "actions": {
     "analyze": "分析并规划",
     "dryRun": "预演",
+    "apply": "执行计划",
+    "confirmApply": "确认移动",
     "rollback": "回滚",
     "newSession": "新建会话"
+  },
+  "popover": {
+    "ready": "托盘模式 · 就绪",
+    "browseHint": "点击选择文件，或把文件拖到这里",
+    "filesSelected": "已选 {{count}} 个",
+    "planEyebrow": "落位计划",
+    "planTitle": "{{count}} 个文件已就绪",
+    "needsInput": "待确认",
+    "moreItems": "还有 {{count}} 个",
+    "openWorkspace": "打开工作区",
+    "localFirst": "本地优先"
   },
   "wizard": {
     "title": "首次运行 - 白名单配置（{{step}} / 3）",
@@ -145,6 +163,15 @@
       "askThreshold": "追问阈值",
       "ruleLearningEnabled": "启用规则学习",
       "autoApplyThreshold": "自动应用阈值"
+    },
+    "rules": {
+      "title": "规则",
+      "description": "命中后跳过 LLM 的确定性规则。",
+      "empty": "还没有学习到的规则。勾选“保存为规则”的修正会出现在这里。"
+    },
+    "updates": {
+      "title": "更新",
+      "description": "检查、校验并安装发布通道中的新版本。"
     },
     "llm": {
       "title": "LLM 配置",
