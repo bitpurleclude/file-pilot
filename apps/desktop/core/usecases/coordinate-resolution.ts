@@ -6,23 +6,20 @@ import { join } from "node:path";
 
 import { sanitizePathSegment } from "./path-safety.js";
 import type { CoordinateOption } from "../../shared/types/registry.js";
+import {
+  parseCoordinateClaim,
+  type CoordinateClaim
+} from "../../shared/validation/registry.js";
 
 export const NEW_PROJECT_PREFIX = "NEW:";
 
-const AREA_PROJECT_SEPARATOR = "/";
-const NUMBER_NAME_SEPARATOR = "-";
 const NEW_PROJECT_PREFIX_UPPER = NEW_PROJECT_PREFIX.toUpperCase();
 
-/** A claimed coordinate `"30-考公/1-行测"` without registry identity. */
-export interface CoordinateClaim {
-  areaNumber: number;
-  areaName: string;
-  projectNumber: number;
-  projectName: string;
-}
+export { parseCoordinateClaim };
+export type { CoordinateClaim };
 
-export type CoordinateClaimResolution =
-  | { kind: "coordinated"; coordinate: CoordinateOption }
+export type CoordinateClaimResolution<T extends CoordinateOption = CoordinateOption> =
+  | { kind: "coordinated"; coordinate: T }
   | { kind: "new-project"; proposedProject: string }
   | { kind: "legacy" };
 
@@ -36,42 +33,6 @@ export const stripNewProjectPrefix = (value: string): string | null => {
 
   const proposed = value.slice(NEW_PROJECT_PREFIX.length).trim();
   return proposed.length === 0 ? null : proposed;
-};
-
-const parseNumberNameSegment = (segment: string): { number: number; name: string } | null => {
-  const separatorIndex = segment.indexOf(NUMBER_NAME_SEPARATOR);
-  if (separatorIndex <= 0) {
-    return null;
-  }
-
-  const numberText = segment.slice(0, separatorIndex).trim();
-  const name = segment.slice(separatorIndex + NUMBER_NAME_SEPARATOR.length).trim();
-  if (!/^\d+$/.test(numberText) || name.length === 0) {
-    return null;
-  }
-
-  return { number: Number.parseInt(numberText, 10), name };
-};
-
-/** Parses `"30-考公/1-行测"`; returns null for any other shape. */
-export const parseCoordinateClaim = (value: string): CoordinateClaim | null => {
-  const segments = value.split(AREA_PROJECT_SEPARATOR);
-  if (segments.length !== 2) {
-    return null;
-  }
-
-  const areaSegment = parseNumberNameSegment((segments[0] ?? "").trim());
-  const projectSegment = parseNumberNameSegment((segments[1] ?? "").trim());
-  if (areaSegment === null || projectSegment === null) {
-    return null;
-  }
-
-  return {
-    areaNumber: areaSegment.number,
-    areaName: areaSegment.name,
-    projectNumber: projectSegment.number,
-    projectName: projectSegment.name
-  };
 };
 
 /**
@@ -114,10 +75,10 @@ export const buildCoordinatedTarget = (
  * - `NEW:<name>` -> "new-project" (proposal for the domain-creation wizard, legacy placement);
  * - anything else (free string, off-list coordinate, legacy data) -> "legacy" placement.
  */
-export const resolveProjectClaim = (
+export const resolveProjectClaim = <T extends CoordinateOption>(
   project: string,
-  coordinates: ReadonlyArray<CoordinateOption>
-): CoordinateClaimResolution => {
+  coordinates: ReadonlyArray<T>
+): CoordinateClaimResolution<T> => {
   const proposedProject = stripNewProjectPrefix(project);
   if (proposedProject !== null) {
     return { kind: "new-project", proposedProject };

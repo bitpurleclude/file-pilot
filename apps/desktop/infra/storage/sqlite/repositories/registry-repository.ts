@@ -12,6 +12,7 @@ import type {
 } from "../../../../shared/types/registry.js";
 import { AREA_NUMBER_MAX, AREA_NUMBER_MIN, PROJECT_NUMBER_MAX } from "../../../../shared/types/registry.js";
 import type { DecisionSource, Purpose } from "../../../../shared/types/workflow.js";
+import { assertRegistryNameValid } from "../../../../shared/validation/registry.js";
 
 const NEW_PROJECT_PREFIX = "NEW:";
 
@@ -154,10 +155,10 @@ export const findAreaByNumber = (db: Database.Database, number: number): Registr
  * count as occupied.
  */
 export const createArea = (db: Database.Database, params: { name: string }): RegistryArea => {
-  const name = params.name.trim();
-  if (name.length === 0) {
+  if (params.name.trim().length === 0) {
     throw new AppError("REGISTRY_AREA_NAME_REQUIRED", "领域名称不能为空", "USER");
   }
+  const name = assertRegistryNameValid(params.name);
 
   try {
     const tx = db.transaction((): RegistryArea => {
@@ -272,12 +273,16 @@ export const createProject = (
   db: Database.Database,
   params: { areaId: string; name: string; aliases?: string[] }
 ): RegistryProject => {
-  const name = params.name.trim();
-  if (name.length === 0) {
+  if (params.name.trim().length === 0) {
     throw new AppError("REGISTRY_PROJECT_NAME_REQUIRED", "项目名称不能为空", "USER");
   }
 
-  const aliases = params.aliases ?? [];
+  const name = assertRegistryNameValid(params.name);
+  const aliases = [
+    ...new Set(
+      (params.aliases ?? []).map((alias, index) => assertRegistryNameValid(alias, `aliases[${index}]`))
+    )
+  ];
 
   try {
     return createProjectTx(db, { areaId: params.areaId, name, aliases });

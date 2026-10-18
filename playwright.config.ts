@@ -13,6 +13,6 @@ export default defineConfig({
   },
   reporter: [
     ["list"],
-    ["html", { open: "never", outputFolder: "test-results/e2e-html" }]
+    ["html", { open: "never", outputFolder: "playwright-report" }]
   ]
 });

@@ -6,6 +6,7 @@ import {
   parseNewProposal,
   validateProjectOutput
 } from "../../infra/llm/coordinate-output.js";
+import { parseCoordinateClaim as resolveParseCoordinateClaim } from "../../core/usecases/coordinate-resolution.js";
 import { LLM_CONFIG } from "../../shared/config/llm.config.js";
 import type { CoordinateOption } from "../../shared/types/registry.js";
 
@@ -54,14 +55,26 @@ describe("parseCoordinateClaim", () => {
     expect(parseCoordinateClaim("30-考公")).toBeNull();
     expect(parseCoordinateClaim("考公-30/1-行测")).toBeNull();
     expect(parseCoordinateClaim("30-考公/行测")).toBeNull();
-    expect(parseCoordinateClaim("30-考公/1-行测/extra")).toEqual({
-      areaNumber: 30,
-      areaName: "考公",
-      projectNumber: 1,
-      projectName: "行测/extra"
-    });
+    expect(parseCoordinateClaim("30-考公/1-行测/extra")).toBeNull();
     expect(parseCoordinateClaim("NEW:30-考公/1-行测")).toBeNull();
     expect(parseCoordinateClaim("默认项目")).toBeNull();
+  });
+
+  it("agrees with the placement resolver on every accepted or rejected shape", () => {
+    const samples = [
+      "30-考公/1-行测",
+      " 10-开发 / 2-前端-基础 ",
+      "30-考公/1-行测/extra",
+      "30-考公",
+      "考公-30/1-行测",
+      "30-考公/行测",
+      "NEW:30-考公/1-行测",
+      ""
+    ];
+
+    for (const sample of samples) {
+      expect(parseCoordinateClaim(sample)).toEqual(resolveParseCoordinateClaim(sample));
+    }
   });
 });
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -27,6 +28,46 @@ const installerResponseFromChunks = (chunks: Buffer[]): Response => {
   const webStream = Readable.toWeb(Readable.from(chunks)) as unknown as ReadableStream<Uint8Array>;
   return new Response(webStream, { status: 200 });
 };
+
+const sha512Base64 = (value: string): string => createHash("sha512").update(value).digest("base64");
+
+const updateMetadata = (params: { version: string; url: string; sha512: string; size?: number }): string => {
+  const size = params.size ?? 15;
+  return [
+    `version: ${params.version}`,
+    "files:",
+    `  - url: ${params.url}`,
+    `    sha512: ${params.sha512}`,
+    `    size: ${size}`,
+    `path: ${params.url}`,
+    `sha512: ${params.sha512}`,
+    "releaseDate: '2026-10-18T00:00:00.000Z'",
+    ""
+  ].join("\n");
+};
+
+const metadataResponse = (text: string): Response => {
+  return { ok: true, status: 200, text: async () => text } as Response;
+};
+
+const downloadRelease = (tagName: string, includeMetadata = true) => {
+  const installer = { name: "File Pilot Setup 0.2.0.exe", browser_download_url: "https://example.com/installer.exe" };
+  return {
+    ...release(tagName),
+    assets: includeMetadata
+      ? [installer, { name: "latest.yml", browser_download_url: "https://example.com/latest.yml" }]
+      : [installer]
+  };
+};
+
+const installerBytes = (): string => "installer-bytes";
+
+const installerMetadata = (sha512: string): string => updateMetadata({
+  version: "0.2.0",
+  url: "File-Pilot-Setup-0.2.0.exe",
+  sha512,
+  size: installerBytes().length
+});
 
 const failingInstallerResponse = (): Response => {
   const failingSource = Readable.from((async function* generatePartialDownload(): AsyncGenerator<Buffer> {
@@ -168,13 +209,32 @@ describe("check-updates", () => {
     expect(result.downloadUrl).toBeUndefined();
   });
 
-  it("downloads installer for latest channel release via streaming write", async () => {
+  it("makes a newer beta prerelease available to a beta build", async () => {
+    const fakeFetch: typeof fetch = (async () => {
+      return releasesResponse([release("v0.1.0-beta.5")]);
+    }) as typeof fetch;
+
+    const result = await checkForUpdates({
+      currentVersion: "0.1.0-beta.4",
+      channel: "beta",
+      fetchImpl: fakeFetch
+    });
+
+    expect(result.available).toBe(true);
+    expect(result.checkStatus).toBe("ok");
+    expect(result.latestVersion).toBe("0.1.0-beta.5");
+  });
+
+  it("downloads installer after verifying the published sha512", async () => {
     const downloadRoot = await mkdtemp(join(tmpdir(), "file-pilot-update-test-"));
 
     const fakeFetch: typeof fetch = (async (input) => {
       const url = String(input);
       if (url.includes("/releases")) {
-        return releasesResponse([release("v0.2.0")]);
+        return releasesResponse([downloadRelease("v0.2.0")]);
+      }
+      if (url.endsWith("/latest.yml")) {
+        return metadataResponse(installerMetadata(sha512Base64(installerBytes())));
       }
 
       return installerResponseFromChunks([Buffer.from("installer-", "utf-8"), Buffer.from("bytes", "utf-8")]);
@@ -189,7 +249,63 @@ describe("check-updates", () => {
 
       const content = await readFile(result.installerPath, "utf-8");
       expect(result.version).toBe("0.2.0");
-      expect(content).toBe("installer-bytes");
+      expect(content).toBe(installerBytes());
+    } finally {
+      await rm(downloadRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects a release that does not publish update metadata", async () => {
+    const downloadRoot = await mkdtemp(join(tmpdir(), "file-pilot-update-test-"));
+
+    const fakeFetch: typeof fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("/releases")) {
+        return releasesResponse([downloadRelease("v0.2.0", false)]);
+      }
+
+      return installerResponseFromChunks([Buffer.from(installerBytes(), "utf-8")]);
+    }) as typeof fetch;
+
+    try {
+      await expect(
+        downloadLatestInstaller({
+          channel: "beta",
+          downloadRoot,
+          fetchImpl: fakeFetch
+        })
+      ).rejects.toMatchObject({ code: "UPDATER_METADATA_MISSING" });
+    } finally {
+      await rm(downloadRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("rejects an installer whose sha512 does not match and removes it", async () => {
+    const downloadRoot = await mkdtemp(join(tmpdir(), "file-pilot-update-test-"));
+
+    const fakeFetch: typeof fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("/releases")) {
+        return releasesResponse([downloadRelease("v0.2.0")]);
+      }
+      if (url.endsWith("/latest.yml")) {
+        return metadataResponse(installerMetadata(sha512Base64("different-bytes")));
+      }
+
+      return installerResponseFromChunks([Buffer.from(installerBytes(), "utf-8")]);
+    }) as typeof fetch;
+
+    try {
+      await expect(
+        downloadLatestInstaller({
+          channel: "beta",
+          downloadRoot,
+          fetchImpl: fakeFetch
+        })
+      ).rejects.toMatchObject({ code: "UPDATER_INTEGRITY_MISMATCH" });
+
+      const leftovers = await readdir(downloadRoot);
+      expect(leftovers).toEqual([]);
     } finally {
       await rm(downloadRoot, { recursive: true, force: true });
     }
@@ -201,7 +317,10 @@ describe("check-updates", () => {
     const fakeFetch: typeof fetch = (async (input) => {
       const url = String(input);
       if (url.includes("/releases")) {
-        return releasesResponse([release("v0.2.0")]);
+        return releasesResponse([downloadRelease("v0.2.0")]);
+      }
+      if (url.endsWith("/latest.yml")) {
+        return metadataResponse(installerMetadata(sha512Base64(installerBytes())));
       }
 
       return failingInstallerResponse();

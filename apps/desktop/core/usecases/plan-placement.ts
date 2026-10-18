@@ -66,20 +66,23 @@ export const buildPlacementPlan = (params: {
         )
       : join(params.workspaceRoot, buildCoordinatedTarget(coordinate, originalFilename));
 
+  const registryIds = coordinate as { areaId?: string; projectId?: string } | null;
   return {
     fileId: params.fileId,
     sourcePath: params.sourcePath,
     targetPath,
     action: "move",
     conflictPolicy: EXECUTOR_CONFIG.defaultConflictPolicy,
-    ...(coordinate === null
+    ...(coordinate === null || registryIds === null
       ? { uncoordinated: true }
       : {
           coordinate: {
             areaNumber: coordinate.areaNumber,
             areaName: coordinate.areaName,
             projectNumber: coordinate.projectNumber,
-            projectName: coordinate.projectName
+            projectName: coordinate.projectName,
+            ...(registryIds.areaId === undefined ? {} : { areaId: registryIds.areaId }),
+            ...(registryIds.projectId === undefined ? {} : { projectId: registryIds.projectId })
           },
           uncoordinated: false
         })

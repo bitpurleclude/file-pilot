@@ -6,6 +6,7 @@ interface RuleRow {
   id: string;
   purpose: ClassificationRule["purpose"];
   project: string;
+  project_id: string | null;
   ext: string | null;
   path_prefix: string | null;
   keywords_json: string;
@@ -37,6 +38,7 @@ const toRule = (row: RuleRow): ClassificationRule => {
     id: row.id,
     purpose: row.purpose,
     project: row.project,
+    ...(row.project_id === null ? {} : { projectId: row.project_id }),
     matcher: {
       ...(row.ext === null ? {} : { ext: row.ext }),
       ...(row.path_prefix === null ? {} : { pathPrefix: row.path_prefix }),
@@ -78,8 +80,9 @@ export const createRuleSqlite = (db: Database.Database, rule: ClassificationRule
       hits,
       created_at,
       updated_at,
-      last_matched_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      last_matched_at,
+      project_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     rule.id,
     rule.purpose,
@@ -94,7 +97,8 @@ export const createRuleSqlite = (db: Database.Database, rule: ClassificationRule
     rule.hits,
     rule.createdAt,
     rule.updatedAt,
-    rule.lastMatchedAt ?? null
+    rule.lastMatchedAt ?? null,
+    rule.projectId ?? null
   );
 
   return rule;
@@ -120,6 +124,7 @@ export const updateRuleSqlite = (db: Database.Database, payload: RuleUpdatePaylo
     ...(payload.enabled === undefined ? {} : { enabled: payload.enabled }),
     ...(payload.priority === undefined ? {} : { priority: payload.priority }),
     ...(payload.project === undefined ? {} : { project: payload.project }),
+    ...(payload.projectId === undefined ? {} : { projectId: payload.projectId }),
     ...(payload.purpose === undefined ? {} : { purpose: payload.purpose }),
     updatedAt: new Date().toISOString()
   };
@@ -129,6 +134,7 @@ export const updateRuleSqlite = (db: Database.Database, payload: RuleUpdatePaylo
     SET
       purpose = ?,
       project = ?,
+      project_id = ?,
       priority = ?,
       enabled = ?,
       updated_at = ?
@@ -136,6 +142,7 @@ export const updateRuleSqlite = (db: Database.Database, payload: RuleUpdatePaylo
   `).run(
     next.purpose,
     next.project,
+    next.projectId ?? null,
     next.priority,
     next.enabled ? 1 : 0,
     next.updatedAt,

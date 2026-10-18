@@ -10,6 +10,7 @@ import { loadSettings } from "../../../infra/storage/settings-repository.js";
 import { resolveProjectClaim } from "../../../core/usecases/coordinate-resolution.js";
 import { applySession, processSession, rollbackSession } from "../../../core/usecases/process-session.js";
 import { buildPlacementPlan } from "../../../core/usecases/plan-placement.js";
+import { recordCoordinateSamples } from "../../../core/usecases/registry-samples.js";
 import { createSession, updateSessionStatus, withExecutions } from "../../../core/usecases/session-manager.js";
 import { openSqliteDatabase } from "../../../infra/storage/sqlite/db.js";
 import { listActiveCoordinates } from "../../../infra/storage/sqlite/repositories/registry-repository.js";
@@ -124,6 +125,7 @@ export const sessionHandlers = {
         }))
       );
       appendDecisionRecordsSqlite(db, toDecisionRecords(req.sessionId, processed.items));
+      recordCoordinateSamples(db, processed.items);
       markRuleHits(sqlitePath(context), processed.items);
       // 影子模式旁路（decision-models.md §5 T1）：fire-and-forget，只记录对齐，
       // 未启用/端点为空时静默跳过；内部全 try/catch，绝不影响本 handler 返回。
@@ -299,28 +301,32 @@ export const sessionHandlers = {
 
         updatedCount += 1;
         const confidence = Math.max(item.classification.confidence, settings.classification.askThreshold);
+        // The answer may itself name a registry coordinate or a NEW: proposal —
+        // honor it instead of silently falling back to the uncoordinated track.
+        const claim = resolveProjectClaim(req.answer, coordinates);
         const classification = {
           ...item.classification,
           project: req.answer,
           confidence,
           confidenceBand: confidenceBandOf(confidence),
           decisionSource: "followup" as const,
-          reasons: [...item.classification.reasons, `followup:${req.answer}`]
+          reasons: [...item.classification.reasons, `followup:${req.answer}`],
+          ...(claim.kind === "new-project" ? { proposedProject: claim.proposedProject } : {})
         };
+        // The persisted classification keeps the NEW: sentinel (proposal
+        // traceability); only the placement plan uses the stripped name.
+        const planClassification = claim.kind === "new-project"
+          ? { ...classification, project: claim.proposedProject }
+          : classification;
 
-        // The answer may itself name a registry coordinate — honor it instead
-        // of silently falling back to the uncoordinated track.
-        const claim = resolveProjectClaim(req.answer, coordinates);
         const { followUpQuestion: _followUpQuestion, ...restItem } = item;
         return {
           ...restItem,
-          classification: claim.kind === "new-project"
-            ? { ...classification, proposedProject: claim.proposedProject }
-            : classification,
+          classification,
           plan: buildPlacementPlan({
             fileId: item.item.id,
             sourcePath: item.item.path,
-            classification,
+            classification: planClassification,
             workspaceRoot: context.workspaceRoot,
             now,
             coordinate: claim.kind === "coordinated" ? claim.coordinate : null
@@ -337,6 +343,7 @@ export const sessionHandlers = {
           data: item
         }))
       );
+      recordCoordinateSamples(db, nextItems);
 
       const updatedExecutions = nextItems.map((item) => ({
         plan: item.plan,
@@ -414,6 +421,8 @@ export const sessionHandlers = {
       const items = listSessionItemsSqlite(db, req.sessionId);
       const now = new Date();
       const coordinates = listActiveCoordinates(db);
+      // All corrected items share the same requested project string.
+      const correctionClaim = resolveProjectClaim(req.project, coordinates);
       let updatedCount = 0;
       let savedRule: ClassificationRule | null = null;
 
@@ -435,25 +444,27 @@ export const sessionHandlers = {
           confidence,
           confidenceBand: confidenceBandOf(confidence),
           decisionSource: "manual-correction" as const,
-          reasons: [...item.classification.reasons, "manual-correction"]
+          reasons: [...item.classification.reasons, "manual-correction"],
+          ...(correctionClaim.kind === "new-project" ? { proposedProject: correctionClaim.proposedProject } : {})
         };
-
         // A correction naming an existing coordinate stays on the coordinated
-        // track; a NEW: name becomes a proposal instead of a silent fallback.
-        const claim = resolveProjectClaim(req.project, coordinates);
+        // track; a NEW: proposal keeps the sentinel in the record but plans
+        // under the clean proposed name.
+        const planClassification = correctionClaim.kind === "new-project"
+          ? { ...classification, project: correctionClaim.proposedProject }
+          : classification;
+
         const { followUpQuestion: _followUpQuestion, ...restItem } = item;
         return {
           ...restItem,
-          classification: claim.kind === "new-project"
-            ? { ...classification, proposedProject: claim.proposedProject }
-            : classification,
+          classification,
           plan: buildPlacementPlan({
             fileId: item.item.id,
             sourcePath: item.item.path,
-            classification,
+            classification: planClassification,
             workspaceRoot: context.workspaceRoot,
             now,
-            coordinate: claim.kind === "coordinated" ? claim.coordinate : null
+            coordinate: correctionClaim.kind === "coordinated" ? correctionClaim.coordinate : null
           }),
           needsFollowUp: false,
           decisionSource: "manual-correction" as const
@@ -467,6 +478,7 @@ export const sessionHandlers = {
           data: item
         }))
       );
+      recordCoordinateSamples(db, nextItems);
 
       upsertSessionSqlite(
         db,
@@ -484,7 +496,15 @@ export const sessionHandlers = {
       if (req.saveAsRule && settings.ruleLearning.enabled) {
         const seed = nextItems.find((item) => req.applyToAll || item.item.id === req.fileId);
         if (seed !== undefined) {
-          savedRule = createRuleSqlite(db, buildRuleFromItem(seed, req.purpose, req.project));
+          savedRule = createRuleSqlite(
+            db,
+            buildRuleFromItem(
+              seed,
+              req.purpose,
+              req.project,
+              correctionClaim.kind === "coordinated" ? correctionClaim.coordinate.projectId : undefined
+            )
+          );
         }
       }
 

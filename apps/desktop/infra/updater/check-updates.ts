@@ -1,7 +1,8 @@
+import { createHash } from "node:crypto";
 import { createWriteStream } from "node:fs";
-import { mkdir, rm } from "node:fs/promises";
+import { mkdir, rename, rm } from "node:fs/promises";
 import { basename, join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeWebReadableStream } from "node:stream/web";
 
@@ -167,6 +168,162 @@ const pickWindowsInstallerAsset = (release: GithubRelease): GithubReleaseAsset |
     return name.endsWith(".exe") && !name.includes("portable");
   });
   return installers.find((asset) => asset.name.toLowerCase().includes("setup")) ?? installers[0];
+};
+
+export interface UpdateMetadataFile {
+  url?: string;
+  sha512?: string;
+  size?: number;
+}
+
+export interface UpdateMetadata {
+  version?: string;
+  path?: string;
+  sha512?: string;
+  files: UpdateMetadataFile[];
+}
+
+const METADATA_ASSET_PATTERN = /^latest.*\.ya?ml$/i;
+
+const pickMetadataAsset = (release: GithubRelease): GithubReleaseAsset | undefined => {
+  return (release.assets ?? []).find((asset) => METADATA_ASSET_PATTERN.test(asset.name));
+};
+
+const unquoteYamlValue = (value: string): string => {
+  const trimmed = value.trim();
+  if (
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+    || (trimmed.startsWith("\"") && trimmed.endsWith("\""))
+  ) {
+    return trimmed.slice(1, -1);
+  }
+  return trimmed;
+};
+
+/**
+ * Minimal parser for electron-builder's `latest.yml` metadata. Only the keys
+ * needed for integrity verification are read; unknown keys are ignored.
+ */
+export const parseUpdateMetadata = (text: string): UpdateMetadata | null => {
+  if (text.trim().length === 0) {
+    return null;
+  }
+
+  const metadata: UpdateMetadata = { files: [] };
+  let inFiles = false;
+  let currentFile: UpdateMetadataFile | null = null;
+
+  const applyFileField = (target: UpdateMetadataFile, line: string): void => {
+    const separator = line.indexOf(":");
+    if (separator === -1) {
+      return;
+    }
+    const key = line.slice(0, separator).trim();
+    const value = unquoteYamlValue(line.slice(separator + 1));
+    if (key === "url") {
+      target.url = value;
+    } else if (key === "sha512") {
+      target.sha512 = value;
+    } else if (key === "size") {
+      const parsed = Number.parseInt(value, 10);
+      if (Number.isFinite(parsed)) {
+        target.size = parsed;
+      }
+    }
+  };
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const trimmed = rawLine.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) {
+      continue;
+    }
+
+    const indent = rawLine.length - rawLine.trimStart().length;
+    if (indent === 0) {
+      inFiles = false;
+      currentFile = null;
+      const separator = trimmed.indexOf(":");
+      if (separator === -1) {
+        continue;
+      }
+      const key = trimmed.slice(0, separator).trim();
+      const value = unquoteYamlValue(trimmed.slice(separator + 1));
+      if (key === "files") {
+        inFiles = true;
+      } else if (key === "version") {
+        metadata.version = value;
+      } else if (key === "path") {
+        metadata.path = value;
+      } else if (key === "sha512") {
+        metadata.sha512 = value;
+      }
+      continue;
+    }
+
+    if (!inFiles) {
+      continue;
+    }
+
+    if (trimmed.startsWith("- ")) {
+      currentFile = {};
+      metadata.files.push(currentFile);
+      applyFileField(currentFile, trimmed.slice(2));
+      continue;
+    }
+
+    if (currentFile !== null) {
+      applyFileField(currentFile, trimmed);
+    }
+  }
+
+  return metadata;
+};
+
+const normalizeAssetName = (value: string): string => {
+  let decoded = value;
+  try {
+    decoded = decodeURIComponent(value);
+  } catch {
+    // Keep the raw value when percent-decoding fails.
+  }
+  return decoded
+    .toLowerCase()
+    .replace(/\s+/g, "-")
+    .replace(/[^a-z0-9.\-_]/g, "")
+    .replace(/-+/g, "-");
+};
+
+const selectExpectedSha512 = (
+  metadata: UpdateMetadata,
+  installerAsset: GithubReleaseAsset
+): string | null => {
+  const normalizedInstaller = normalizeAssetName(installerAsset.name);
+  if (
+    metadata.path !== undefined
+    && metadata.sha512 !== undefined
+    && normalizeAssetName(metadata.path) === normalizedInstaller
+  ) {
+    return metadata.sha512;
+  }
+
+  const matchedFile = metadata.files.find((file) => (
+    file.url !== undefined
+    && file.sha512 !== undefined
+    && normalizeAssetName(file.url) === normalizedInstaller
+  ));
+  if (matchedFile?.sha512 !== undefined) {
+    return matchedFile.sha512;
+  }
+
+  // electron-builder writes one primary artifact per latest.yml. If name
+  // normalization did not line up, fall back only to a single .exe entry.
+  const exeFiles = metadata.files.filter((file) => (
+    file.url !== undefined
+    && file.url.toLowerCase().endsWith(".exe")
+    && !file.url.toLowerCase().includes("portable")
+    && file.sha512 !== undefined
+  ));
+  return exeFiles.length === 1 ? exeFiles[0]?.sha512 ?? null : null;
 };
 
 const updaterNetworkError = (message: string, error: unknown): AppError => {
@@ -344,11 +501,72 @@ export const downloadLatestInstaller = async (params: {
     throw new AppError("UPDATER_CHANNEL_NO_RELEASE", `No release found for ${channel} channel`, "USER");
   }
 
+  const latestVersion = normalizeVersion(latest.tag_name);
   const installerAsset = pickWindowsInstallerAsset(latest);
   if (installerAsset === undefined) {
     throw new AppError("UPDATER_ASSET_MISSING", "Latest release does not contain a Windows installer asset", "USER", {
-      latestVersion: normalizeVersion(latest.tag_name)
+      latestVersion
     });
+  }
+
+  const metadataAsset = pickMetadataAsset(latest);
+  if (metadataAsset === undefined) {
+    throw new AppError(
+      "UPDATER_METADATA_MISSING",
+      "Latest release does not publish latest.yml metadata; refusing to download an unverifiable installer",
+      "SYSTEM",
+      { latestVersion }
+    );
+  }
+
+  let metadataResponse: Response;
+  try {
+    metadataResponse = await fetchImpl(metadataAsset.browser_download_url);
+  } catch (error) {
+    throw updaterNetworkError("Unable to reach update metadata", error);
+  }
+
+  if (!metadataResponse.ok) {
+    throw new AppError(
+      "UPDATER_METADATA_INVALID",
+      `Update metadata download failed with HTTP ${metadataResponse.status}`,
+      "SYSTEM"
+    );
+  }
+
+  let metadataText: string;
+  try {
+    metadataText = await metadataResponse.text();
+  } catch (error) {
+    throw new AppError("UPDATER_METADATA_INVALID", "Failed to read update metadata", "SYSTEM", {
+      reason: error instanceof Error ? error.message : "unknown"
+    });
+  }
+
+  const metadata = parseUpdateMetadata(metadataText);
+  if (metadata === null) {
+    throw new AppError("UPDATER_METADATA_INVALID", "Update metadata is empty or unparseable", "SYSTEM", {
+      latestVersion
+    });
+  }
+
+  if (metadata.version !== undefined && normalizeVersion(metadata.version) !== latestVersion) {
+    throw new AppError(
+      "UPDATER_METADATA_INVALID",
+      "Update metadata version does not match the release tag",
+      "SYSTEM",
+      { latestVersion, metadataVersion: metadata.version }
+    );
+  }
+
+  const expectedSha512 = selectExpectedSha512(metadata, installerAsset);
+  if (expectedSha512 === null) {
+    throw new AppError(
+      "UPDATER_METADATA_INVALID",
+      "Update metadata has no sha512 for the selected installer",
+      "SYSTEM",
+      { latestVersion, installer: installerAsset.name }
+    );
   }
 
   let installerResponse: Response;
@@ -369,24 +587,59 @@ export const downloadLatestInstaller = async (params: {
 
   await mkdir(params.downloadRoot, { recursive: true });
   const filePath = join(params.downloadRoot, basename(installerAsset.name));
+  const tempPath = `${filePath}.download`;
 
   // The DOM ReadableStream type and node:stream/web ReadableStream are distinct
   // nominal types with identical runtime shape; bridge them without `any`.
   const installerStream = Readable.fromWeb(responseBody as unknown as NodeWebReadableStream<Uint8Array>);
 
+  const hash = createHash("sha512");
+  const hashingStream = new Transform({
+    transform(
+      chunk: Buffer,
+      _encoding: BufferEncoding,
+      callback: (error?: Error | null, data?: Buffer) => void
+    ): void {
+      hash.update(chunk);
+      callback(null, chunk);
+    }
+  });
+
   try {
-    await pipeline(installerStream, createWriteStream(filePath));
+    await pipeline(installerStream, hashingStream, createWriteStream(tempPath));
   } catch (error) {
     // Best-effort cleanup of the partial download; a cleanup failure must not
     // mask the original download error.
-    await rm(filePath, { force: true }).catch(() => undefined);
+    await rm(tempPath, { force: true }).catch(() => undefined);
     throw new AppError("UPDATER_DOWNLOAD_FAILED", "Failed to write installer bytes to disk", "SYSTEM", {
       reason: error instanceof Error ? error.message : "unknown"
     });
   }
 
+  const actualSha512 = hash.digest("base64");
+  if (actualSha512 !== expectedSha512) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw new AppError(
+      "UPDATER_INTEGRITY_MISMATCH",
+      "Installer sha512 does not match latest.yml",
+      "SYSTEM",
+      { expectedSha512 }
+    );
+  }
+
+  // Replace any previous download only after the new bytes are verified.
+  await rm(filePath, { force: true }).catch(() => undefined);
+  try {
+    await rename(tempPath, filePath);
+  } catch (error) {
+    await rm(tempPath, { force: true }).catch(() => undefined);
+    throw new AppError("UPDATER_DOWNLOAD_FAILED", "Failed to finalize installer download", "SYSTEM", {
+      reason: error instanceof Error ? error.message : "unknown"
+    });
+  }
+
   return {
-    version: normalizeVersion(latest.tag_name),
+    version: latestVersion,
     installerPath: filePath
   };
 };
@@ -395,7 +648,9 @@ export const __test__ = {
   compareVersions,
   isGithubRelease,
   parseReleasesPayload,
+  parseUpdateMetadata,
   normalizeVersion,
+  pickMetadataAsset,
   pickRelease,
   pickWindowsInstallerAsset
 };

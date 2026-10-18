@@ -39,22 +39,25 @@
 ## 验证证据
 
 执行环境：Windows 11（win32 10.0.26100 x64）、Node 20+。worktree：`.worktrees/registry-stage1`。
+验证基线 commit：`bbb4a03`（本文件所在提交）。2026-10-18 复核时复跑了 typecheck/lint/test/test:qa/build 与 registry-wizard e2e；全量 e2e 和 `dist:win` 未在本轮复跑。
 
 | 命令 | 结果 | 备注 |
 | --- | --- | --- |
 | `npm run typecheck` | 通过（exit 0） | 终审修复后复验 |
 | `npm run lint` | 通过（exit 0） | |
-| `npm run test` | 通过（exit 0） | **36 文件 / 250 用例**（含 registry 仓储 12、坐标解析 15、坐标输出 17、查重 16、handlers 8、影子 12、基准 1 及全部回归） |
-| `npm run test:qa` | 通过（exit 0） | 含决策模型基准 harness（mock 端点 agreeRate 脚本校准验证） |
+| `npm run test` | 通过（exit 0） | **33 文件 / 247 用例**（registry 仓储 10、坐标解析 18、坐标输出 20、查重 16、handlers 8、影子 12 及全部回归） |
+| `npm run test:qa` | 通过（exit 0） | **3 文件 / 3 用例**（性能、回滚可靠性、决策基准 harness）；与 test 合计 36 文件 / 250 用例 |
 | `npm run build` | 通过（exit 0） | 模板坐标段随构建复制 |
-| `npx playwright test` | **27 通过 / 0 失败 / 2 跳过** | 新增 registry-wizard 2 例；解禁坐标清单注入例；legacy 回归保护例 |
-| `FILE_PILOT_RUN_PACKAGED_SMOKE=1` 打包 smoke | 2/2 通过 | 真实启动 win-unpacked 产物 |
-| `npm run dist:win` | 通过（exit 0） | NSIS + Portable + latest.yml |
+| `npx playwright test` | 记录为 **27 通过 / 0 失败 / 2 跳过** | 2026-10-18 仅复跑 `registry-wizard.spec.ts`（2/2 通过）；全量 e2e 未复跑 |
+| `FILE_PILOT_RUN_PACKAGED_SMOKE=1` 打包 smoke | 2/2 通过（历史记录） | 真实启动 win-unpacked 产物；本轮未复跑 |
+| `npm run dist:win` | 通过（exit 0，历史记录） | NSIS + Portable + latest.yml；本轮未复跑 |
 | 隔离证明 | 通过 | e2e 全程 `%APPDATA%\Electron`/`%APPDATA%\file-pilot` mtime 不变 |
 
-## 已知事项与 backlog（终审 P3，不阻塞）
+## 已知事项与 backlog
 
-- registry-panel 的 void IPC 调用未包 try/catch（基础设施层 reject 时渲染进程出现未处理 rejection，业务错误已走 ok:false 正常展示）。
+已由 `review-fixes-20261018.md` 修复：registry-panel 未捕获 IPC reject、`NEW:` 追问/修正落位路径、`classification_rules.project_id` 未接线、`sample_paths` 未积累、登记册名称路径字符校验、坐标解析双实现、更新器元数据校验。
+
+仍保留：
 - NEW: 提案「忽略」仅前端隐藏，刷新后复现；同名提案不去重。
 - classifyMany 分块以 chunk[0].coordinates 为准（当前唯一调用方保证同质；自定义直接调用者需注意）。
 - 实时查重对已配置 apiKey 的用户每次防抖停顿可能发起 LLM 判官调用（无缓存）——成本优化 backlog。

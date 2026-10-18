@@ -22,6 +22,10 @@ import {
   resolveCoordinate
 } from "../../infra/storage/sqlite/repositories/registry-repository.js";
 import { upsertSessionSqlite } from "../../infra/storage/sqlite/repositories/sessions-repository.js";
+import {
+  createRuleSqlite,
+  getRuleByIdSqlite
+} from "../../infra/storage/sqlite/repositories/rules-repository.js";
 import { REGISTRY_CONFIG } from "../../shared/config/registry.config.js";
 import { AppError } from "../../shared/errors/app-error.js";
 import type { RegistryProject } from "../../shared/types/registry.js";
@@ -311,6 +315,32 @@ describe("registry-repository", () => {
         .prepare("INSERT INTO classification_rules (id, purpose, project, keywords_json, negative_keywords_json, priority, enabled, source, hits, created_at, updated_at, project_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
         .run("rule-broken-fk", "Documents", "X", "[]", "[]", 0, 1, "manual", 0, "2026-01-01T00:00:00.000Z", "2026-01-01T00:00:00.000Z", "missing-project")
     ).toThrow();
+  });
+
+  it("persists project_id through createRuleSqlite and reads it back", async () => {
+    const db = await setupDb();
+
+    const area = createArea(db, { name: "开发" });
+    const project = createProject(db, { areaId: area.id, name: "登记册" });
+    const now = "2026-10-18T00:00:00.000Z";
+
+    const rule = {
+      id: "rule-with-project",
+      purpose: "Documents" as const,
+      project: "登记册",
+      projectId: project.id,
+      matcher: { ext: "md", keywords: [], negativeKeywords: [] },
+      priority: 100,
+      enabled: true,
+      source: "manual" as const,
+      hits: 0,
+      createdAt: now,
+      updatedAt: now
+    };
+
+    createRuleSqlite(db, rule);
+
+    expect(getRuleByIdSqlite(db, rule.id)?.projectId).toBe(project.id);
   });
 
   it("lists recent NEW: proposals from decisions", async () => {

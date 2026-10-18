@@ -118,13 +118,15 @@ export const markRuleHits = (dbPath: string, items: ProcessedSessionItem[]): voi
 export const buildRuleFromItem = (
   item: ProcessedSessionItem,
   purpose: ClassificationRule["purpose"],
-  project: string
+  project: string,
+  projectId?: string
 ): ClassificationRule => {
   const now = new Date().toISOString();
   return {
     id: crypto.randomUUID(),
     purpose,
     project,
+    ...(projectId === undefined ? {} : { projectId }),
     matcher: {
       ext: item.item.ext,
       pathPrefix: dirname(item.item.path),
