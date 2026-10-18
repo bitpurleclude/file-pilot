@@ -12,11 +12,17 @@ import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import { handlers, type HandlerContext } from "./handler-registry.js";
 
 const createMainWindow = async (): Promise<BrowserWindow> => {
+  // E2E launches hide the window so repeated scenarios do not flash on the
+  // desktop. Playwright still drives the renderer through CDP; disabling
+  // background throttling keeps timers/rendering active while hidden.
+  const hideWindow = process.env.FILE_PILOT_E2E_HIDE_WINDOW === "1";
   const win = new BrowserWindow({
     width: 1024,
     height: 720,
+    ...(hideWindow ? { show: false, skipTaskbar: true } : {}),
     webPreferences: {
-      preload: join(__dirname, "preload.cjs")
+      preload: join(__dirname, "preload.cjs"),
+      ...(hideWindow ? { backgroundThrottling: false } : {})
     }
   });
 

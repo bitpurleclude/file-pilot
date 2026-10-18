@@ -23,6 +23,7 @@
 - **P3 `classification_rules.project_id` 接线**：`ClassificationRule` / `RuleUpdatePayload` 增加 `projectId`；仓储 create/update 读写该列；坐标修正学习规则时写入实际 `projectId`。
 - **P3 `sample_paths` 积累**：`PlacementPlan.coordinate` 携带可选 `areaId/projectId`；新增 `recordCoordinateSamples`，在 analyze、追问、修正后把 coordinated 条目的源路径写入登记册（best-effort，项目已归档时不阻断主链）。
 - **P3 UI 健壮性**：registry-panel 的 IPC 调用全部捕获 rejection；非法名称在本地禁用创建并跳过实时查重；e2e HTML reporter 输出移出 `test-results`，消除每次运行的 Configuration Error。
+- **E2E 不打扰桌面**：`electron-launch` 默认注入 `FILE_PILOT_E2E_HIDE_WINDOW=1`，主进程以 `show:false` + `skipTaskbar` 创建窗口（关闭背景节流）；registry-wizard 两个用例合并为一次启动，避免重复弹窗。需要目视调试时传 `hideWindow:false`。
 - **文档同步**：修正治理设计项目编号示例、README 功能/IPC 列表、release 索引与 runbook、registry-stage1 验证计数；新增 `qa-acceptance.md`（修复 README 失效链接）。
 
 ## 更新文档变更
@@ -53,7 +54,8 @@
 | `npm run test` | 通过（exit 0） | **35 文件 / 257 用例**（基线 33/247 + 10 个新增回归用例） |
 | `npm run test:qa` | 通过（exit 0） | 3 文件 / 3 用例（性能、回滚可靠性、决策基准） |
 | `npm run build` | 通过（exit 0） | renderer + electron bundle + 迁移/模板复制 |
-| `npx playwright test --list` | 通过（exit 0） | 29 tests / 12 files；不再出现 reporter folder clash |
+| `npx playwright test --list` | 通过（exit 0） | 28 tests / 12 files；不再出现 reporter folder clash |
+| `npx playwright test registry-wizard.spec.ts` | 通过（1/1） | 隐藏窗口模式；两个场景合并为一次 Electron 启动（18.1s） |
 
 新增回归覆盖：
 
@@ -63,7 +65,7 @@
 - `apps/desktop/tests/unit/registry-repository.test.ts`：`createRuleSqlite` 持久化并读回 `project_id`。
 - `apps/desktop/tests/integration/session-handlers-coordinates.test.ts`：追问 `NEW:` plan 剥前缀、坐标修正保留 coordinated 落位、样本路径入库、学习规则带 `projectId`。
 
-未在本次复跑（按 owner 要求停止长耗时测试）：完整 Playwright e2e 与 `npm run dist:win`。registry 向导 e2e 在基线 `bbb4a03` 上曾 2/2 通过；e2e 全量结论以 `registry-stage1-20261017.md` 的历史记录为准。
+未在本次复跑（按 owner 要求停止长耗时测试）：完整 Playwright e2e 与 `npm run dist:win`。registry 向导 e2e 在隐藏窗口模式下复跑通过（合并后 1/1，18.1s）；e2e 全量结论以 `registry-stage1-20261017.md` 的历史记录为准。
 
 ## 已知剩余事项
 

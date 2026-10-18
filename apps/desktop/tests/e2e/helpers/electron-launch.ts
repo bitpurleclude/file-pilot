@@ -20,6 +20,12 @@ interface LaunchElectronAppOptions {
   userDataDir?: string;
   /** Explicit workspace root; used instead of a fresh temp dir when provided. */
   workspaceRoot?: string;
+  /**
+   * Keep the Electron window hidden (default true). E2E still drives the page
+   * through CDP, but repeated launches no longer flash windows on the desktop.
+   * Pass false only when debugging a flow visually.
+   */
+  hideWindow?: boolean;
 }
 
 export interface LaunchDirs {
@@ -71,6 +77,12 @@ export const launchElectronApp = async (
   }
 
   delete env.ELECTRON_RUN_AS_NODE;
+
+  if (options.hideWindow ?? true) {
+    env.FILE_PILOT_E2E_HIDE_WINDOW = "1";
+  } else {
+    delete env.FILE_PILOT_E2E_HIDE_WINDOW;
+  }
 
   const createdDirs: string[] = [];
 
