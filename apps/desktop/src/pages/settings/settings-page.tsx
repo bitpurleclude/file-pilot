@@ -30,6 +30,8 @@ interface SettingsPageProps {
   settings: AppSettings;
   logStatus: { sizeBytes: number; warn: boolean } | null;
   notice?: string | null;
+  /** Exposes a best-effort flush so the close handshake can persist the last edit. */
+  flushRef?: React.MutableRefObject<(() => Promise<void>) | null>;
   onBack: () => void;
   onSettingsChange: (settings: AppSettings) => void;
   onClearLogs: () => Promise<void>;
@@ -54,6 +56,7 @@ export const SettingsPage = ({
   settings,
   logStatus,
   notice,
+  flushRef,
   onBack,
   onSettingsChange,
   onClearLogs,
@@ -70,6 +73,18 @@ export const SettingsPage = ({
     settingsRef.current = settings;
     setDraft(settings);
   }, [settings]);
+
+  React.useEffect(() => {
+    if (flushRef === undefined) {
+      return;
+    }
+    flushRef.current = async () => {
+      await autosaveRef.current?.flush();
+    };
+    return () => {
+      flushRef.current = null;
+    };
+  }, [flushRef]);
 
   React.useEffect(() => {
     autosaveRef.current?.dispose();

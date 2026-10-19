@@ -63,6 +63,7 @@
     "electron-builder": "^25.1.8",
     "esbuild": "^0.25.10",
     "eslint": "^9.34.0",
+    "rcedit": "^5.0.1",
     "typescript": "^5.9.2",
     "vite": "^5.4.8",
     "vitest": "^2.1.8"
@@ -71,6 +72,7 @@
     "appId": "com.bitpurleclude.filepilot",
     "productName": "File Pilot",
     "forceCodeSigning": false,
+    "afterPack": "scripts/after-pack.cjs",
     "files": [
       "dist/**/*",
       "package.json"
@@ -91,7 +93,9 @@
     "nsis": {
       "oneClick": false,
       "perMachine": false,
-      "allowToChangeInstallationDirectory": true
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "resources/icon.ico",
+      "uninstallerIcon": "resources/icon.ico"
     },
     "portable": {
       "artifactName": "File-Pilot-${version}-Portable.exe"

@@ -98,8 +98,11 @@ export interface FilePilotApi {
   openWorkspace(): Promise<IpcResult<{ opened: boolean }>>;
   pickFiles(): Promise<IpcResult<{ paths: string[] }>>;
   resizePopover(payload: { height: number }): Promise<IpcResult<{ height: number }>>;
+  confirmSettingsClose(): Promise<IpcResult<{ closed: boolean }>>;
   /** Subscribe to popover-shown refreshes; returns an unsubscribe function. */
   onPopoverShown(callback: () => void): () => void;
+  /** Subscribe to settings-window close requests; flush pending saves first. */
+  onSettingsCloseRequested(callback: () => void): () => void;
 }
 
 declare global {

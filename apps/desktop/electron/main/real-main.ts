@@ -12,6 +12,7 @@ import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import {
   IPC_CHANNELS,
   closeSettingsRequestSchema,
+  confirmSettingsCloseRequestSchema,
   hidePopoverRequestSchema,
   openSettingsRequestSchema,
   openWorkspaceRequestSchema,
@@ -75,6 +76,16 @@ const registerIpc = (context: HandlerContext, manager: WindowManager): void => {
     try {
       closeSettingsRequestSchema.parse(payload);
       manager.closeSettings();
+      return { ok: true, data: { closed: true } };
+    } catch (error) {
+      return { ok: false, error: toIpcError(error) };
+    }
+  });
+
+  ipcMain.handle(IPC_CHANNELS.confirmSettingsClose, async (_event, payload) => {
+    try {
+      confirmSettingsCloseRequestSchema.parse(payload);
+      manager.confirmSettingsClose();
       return { ok: true, data: { closed: true } };
     } catch (error) {
       return { ok: false, error: toIpcError(error) };

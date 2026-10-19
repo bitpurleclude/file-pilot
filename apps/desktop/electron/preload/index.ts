@@ -35,11 +35,19 @@ const api: FilePilotApi = {
   openWorkspace: async () => ipcRenderer.invoke(IPC_CHANNELS.openWorkspace, {}),
   pickFiles: async () => ipcRenderer.invoke(IPC_CHANNELS.pickFiles, {}),
   resizePopover: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.resizePopover, payload),
+  confirmSettingsClose: async () => ipcRenderer.invoke(IPC_CHANNELS.confirmSettingsClose, {}),
   onPopoverShown: (callback) => {
     const listener = (): void => callback();
     ipcRenderer.on(IPC_CHANNELS.popoverShown, listener);
     return () => {
       ipcRenderer.removeListener(IPC_CHANNELS.popoverShown, listener);
+    };
+  },
+  onSettingsCloseRequested: (callback) => {
+    const listener = (): void => callback();
+    ipcRenderer.on(IPC_CHANNELS.settingsCloseRequested, listener);
+    return () => {
+      ipcRenderer.removeListener(IPC_CHANNELS.settingsCloseRequested, listener);
     };
   }
 };

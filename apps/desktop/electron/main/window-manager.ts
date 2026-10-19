@@ -1,6 +1,8 @@
 import { app, BrowserWindow, dialog, Menu, nativeImage, screen, shell, Tray } from "electron";
 import { join } from "node:path";
 
+import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
+
 const POPOVER_WIDTH = 396;
 const POPOVER_HEIGHT = 640;
 const SETTINGS_WIDTH = 1060;
@@ -26,6 +28,7 @@ export interface WindowManager {
   togglePopover: () => void;
   openSettings: () => void;
   closeSettings: () => void;
+  confirmSettingsClose: () => void;
   getPopover: () => BrowserWindow | null;
   openWorkspace: () => Promise<void>;
   pickFiles: () => Promise<string[]>;
@@ -46,10 +49,19 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
   let popoverReady = false;
   let pendingShow = false;
   let lastHideAt = 0;
+  let settingsCloseApproved = false;
+  let settingsCloseTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const clearSettingsCloseTimer = (): void => {
+    if (settingsCloseTimer !== null) {
+      clearTimeout(settingsCloseTimer);
+      settingsCloseTimer = null;
+    }
+  };
 
   const emitPopoverShown = (): void => {
     if (popoverWindow !== null && !popoverWindow.isDestroyed()) {
-      popoverWindow.webContents.send("fp:popover-shown");
+      popoverWindow.webContents.send(IPC_CHANNELS.popoverShown);
     }
   };
 
@@ -219,7 +231,26 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
       }
     });
 
+    settingsCloseApproved = false;
+    clearSettingsCloseTimer();
     void settingsWindow.loadFile(options.rendererHtmlPath, { query: { view: "settings" } });
+
+    // Give the renderer a chance to flush its 600ms autosave before closing.
+    // A 1.5s fallback still closes the window if the renderer is unresponsive.
+    settingsWindow.on("close", (event) => {
+      if (quitting || settingsCloseApproved) {
+        return;
+      }
+      event.preventDefault();
+      settingsWindow?.webContents.send(IPC_CHANNELS.settingsCloseRequested);
+      if (settingsCloseTimer === null) {
+        settingsCloseTimer = setTimeout(() => {
+          settingsCloseTimer = null;
+          settingsCloseApproved = true;
+          settingsWindow?.close();
+        }, 1500);
+      }
+    });
 
     settingsWindow.once("ready-to-show", () => {
       if (options.hideWindows || settingsWindow === null) {
@@ -230,6 +261,8 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
     });
 
     settingsWindow.on("closed", () => {
+      clearSettingsCloseTimer();
+      settingsCloseApproved = false;
       settingsWindow = null;
       if (!quitting) {
         showPopover();
@@ -238,6 +271,14 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
   };
 
   const closeSettings = (): void => {
+    if (settingsWindow !== null && !settingsWindow.isDestroyed()) {
+      settingsWindow.close();
+    }
+  };
+
+  const confirmSettingsClose = (): void => {
+    clearSettingsCloseTimer();
+    settingsCloseApproved = true;
     if (settingsWindow !== null && !settingsWindow.isDestroyed()) {
       settingsWindow.close();
     }
@@ -301,6 +342,7 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
     togglePopover,
     openSettings,
     closeSettings,
+    confirmSettingsClose,
     getPopover: () => popoverWindow,
     openWorkspace,
     pickFiles,
@@ -310,6 +352,7 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
     },
     dispose: () => {
       quitting = true;
+      clearSettingsCloseTimer();
       tray?.destroy();
       tray = null;
       settingsWindow?.destroy();

@@ -29,6 +29,14 @@ Tray icon (right-click menu: Open / Settings / Open workspace / Quit)
 
 `real-main.ts` wires the manager into IPC channels and the updater. The popover sends `fp:popover-shown` when it becomes visible; the renderer refetches settings so read-only/language/whitelist changes made in the settings window are reflected without a restart.
 
+### Settings close handshake
+
+Closing the settings window (native X or `settings-back`) is intercepted by the main process. It sends `fp:settings-close-requested` to the renderer, which flushes the autosave controller and replies with `fp:confirm-settings-close`; only then does the window close. A 1.5s fallback closes an unresponsive renderer so the window can never become unclosable.
+
+## Packaging icons
+
+`build.win.icon` / `nsis.installerIcon` point at `resources/icon.ico`. electron-builder's own resource editing is left disabled (`signAndEditExecutable: false`) because its rcedit path requires extracting winCodeSign with symlink privileges. `scripts/after-pack.cjs` instead runs the standalone `rcedit` devDependency on the packed executable to set the icon and Windows version metadata before NSIS/portable targets are built.
+
 ## Renderer
 
 `main.tsx` branches on `?view=`:

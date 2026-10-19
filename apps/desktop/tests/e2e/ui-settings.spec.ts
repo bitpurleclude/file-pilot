@@ -88,6 +88,31 @@ test("read-only switch autosaves and main page reflects read-only mode", async (
   }
 });
 
+test("closing settings flushes a pending debounced change", async () => {
+  test.setTimeout(90_000);
+
+  const electronApp = await launchElectronApp();
+
+  try {
+    const popover = await firstWindow(electronApp);
+    const settings = await openSettings(electronApp, popover);
+
+    await settings.locator('[data-testid="settings-tab-classification"]').click();
+    const threshold = settings.locator("#highConfidenceMin");
+    await expect(threshold).toHaveValue("0.85");
+    await threshold.fill("0.9");
+
+    // Close before the 600ms debounce fires; the close handshake must flush it.
+    await goBackToMain(settings);
+
+    const reopened = await openSettings(electronApp, popover);
+    await reopened.locator('[data-testid="settings-tab-classification"]').click();
+    await expect(reopened.locator("#highConfidenceMin")).toHaveValue("0.9");
+  } finally {
+    await electronApp.close();
+  }
+});
+
 test("language saved through settings API re-applies on relaunch", async () => {
   test.setTimeout(120_000);
 

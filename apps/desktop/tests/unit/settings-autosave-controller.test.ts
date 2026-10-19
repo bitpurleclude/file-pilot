@@ -93,6 +93,71 @@ describe("settings-autosave-controller", () => {
     controller.dispose();
   });
 
+  it("flush saves pending debounced settings immediately", async () => {
+    vi.useFakeTimers();
+
+    const saveMock = vi.fn(async () => undefined);
+    const controller = new SettingsAutosaveController({
+      debounceMs: 600,
+      save: saveMock,
+      onStateChange: () => undefined
+    });
+    const pending = createSettings("en");
+
+    controller.schedule(pending, "debounced");
+    await controller.flush();
+
+    expect(saveMock).toHaveBeenCalledTimes(1);
+    expect(saveMock).toHaveBeenCalledWith(pending);
+
+    // The canceled debounce timer must not produce a duplicate save.
+    await vi.advanceTimersByTimeAsync(600);
+    expect(saveMock).toHaveBeenCalledTimes(1);
+
+    controller.dispose();
+  });
+
+  it("flush is a no-op when nothing is pending", async () => {
+    const saveMock = vi.fn(async () => undefined);
+    const controller = new SettingsAutosaveController({
+      debounceMs: 600,
+      save: saveMock,
+      onStateChange: () => undefined
+    });
+
+    await controller.flush();
+    expect(saveMock).toHaveBeenCalledTimes(0);
+
+    controller.dispose();
+  });
+
+  it("flush waits for an in-flight save and persists the latest queued draft", async () => {
+    let releaseFirst: () => void = () => undefined;
+    const firstSave = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const saveMock = vi.fn(async (_settings: AppSettings) => undefined);
+    saveMock.mockImplementationOnce(async () => {
+      await firstSave;
+    });
+    const controller = new SettingsAutosaveController({
+      debounceMs: 600,
+      save: saveMock,
+      onStateChange: () => undefined
+    });
+
+    controller.schedule(createSettings("en"), "immediate");
+    controller.schedule(createSettings("zh-CN"), "immediate");
+    const flushPromise = controller.flush();
+    releaseFirst();
+    await flushPromise;
+
+    expect(saveMock).toHaveBeenCalledTimes(2);
+    expect(saveMock).toHaveBeenLastCalledWith(expect.objectContaining({ language: "zh-CN" }));
+
+    controller.dispose();
+  });
+
   it("keeps error state and allows retry", async () => {
     const saveMock = vi.fn(async (_settings: AppSettings) => undefined);
     saveMock.mockRejectedValueOnce(new Error("network failed"));

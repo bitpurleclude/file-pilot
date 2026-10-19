@@ -263,7 +263,9 @@ export const IPC_CHANNELS = {
   openWorkspace: "fp:open-workspace",
   pickFiles: "fp:pick-files",
   resizePopover: "fp:resize-popover",
-  popoverShown: "fp:popover-shown"
+  confirmSettingsClose: "fp:confirm-settings-close",
+  popoverShown: "fp:popover-shown",
+  settingsCloseRequested: "fp:settings-close-requested"
 } as const;
 
 // ==== Window / shell actions (tray-first UI) ====
@@ -276,6 +278,7 @@ export const pickFilesRequestSchema = z.object({}).default({});
 export const resizePopoverRequestSchema = z.object({
   height: z.number().int().min(260).max(680)
 }).strict();
+export const confirmSettingsCloseRequestSchema = z.object({}).default({});
 
 export interface PickFilesData {
   paths: string[];

@@ -202,7 +202,7 @@ E2E 运行时保障：
 npm run dist:win
 ```
 
-`npm run dist:win` 现在同时产出安装版（NSIS）与便携版（Portable）两种包。安装器/窗口图标来自 `resources/icon.ico`；托盘图标来自 `apps/desktop/electron/assets/tray-icon.png`，构建时复制到 `dist/electron/assets`。`scripts/generate-icons.ps1` 可从同一张绘制源重新生成三者。
+`npm run dist:win` 现在同时产出安装版（NSIS）与便携版（Portable）两种包。安装器/窗口图标来自 `resources/icon.ico`；托盘图标来自 `apps/desktop/electron/assets/tray-icon.png`，构建时复制到 `dist/electron/assets`。`scripts/generate-icons.ps1` 可从同一张绘制源重新生成三者。`scripts/after-pack.cjs` 在打包后用独立 `rcedit` 注入 exe 图标和 Windows 版本元数据（不启用 electron-builder 自带 rcedit 的 winCodeSign 解压路径，避免符号链接权限问题）。
 
 产物默认在：
 

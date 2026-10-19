@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 
 import type { AppSettings } from "../../../shared/types/settings.js";
@@ -18,6 +18,7 @@ export const SettingsApp = (): JSX.Element => {
   const [logStatus, setLogStatus] = useState<{ sizeBytes: number; warn: boolean } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const flushRef = useRef<(() => Promise<void>) | null>(null);
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -46,6 +47,23 @@ export const SettingsApp = (): JSX.Element => {
 
     void bootstrap();
   }, [i18n]);
+
+  useEffect(() => {
+    const api = window.filePilotApi;
+    if (api === undefined || api.onSettingsCloseRequested === undefined) {
+      return;
+    }
+
+    return api.onSettingsCloseRequested(() => {
+      void (async () => {
+        try {
+          await flushRef.current?.();
+        } finally {
+          await api.confirmSettingsClose();
+        }
+      })();
+    });
+  }, []);
 
   const refreshLogStatus = useCallback(async (): Promise<void> => {
     const api = window.filePilotApi;
@@ -113,6 +131,7 @@ export const SettingsApp = (): JSX.Element => {
       settings={settings}
       logStatus={logStatus}
       notice={notice}
+      flushRef={flushRef}
       onBack={() => { void closeWindow(); }}
       onSettingsChange={handleSettingsChange}
       onClearLogs={clearLogs}

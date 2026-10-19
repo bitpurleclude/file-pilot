@@ -21,6 +21,8 @@
 - **视觉系统**：深色 obsidian + 薄荷强调、Segoe UI Variable/微软雅黑排版、玻璃卡片、细噪点、进入/展开动画、减少动态偏好支持；新增托盘/安装器图标（`resources/icon.ico`、`tray-icon.png`）。
 - **IPC/preload**：新增 `openSettings` / `hidePopover` / `closeSettings` / `openWorkspace` / `pickFiles` / `resizePopover` 与 `onPopoverShown` 事件；Zod 校验空载荷/窗口高度。
 - **E2E 适配**：helper 新增 `openSettingsWindow` / `closeSettingsWindow`；UI 规格改为双窗口；继续默认隐藏窗口（不闪桌面）。
+- **关闭前保存**：设置窗口关闭改为主进程→渲染进程握手，先 flush 600ms 防抖保存再确认关闭，1.5s 无响应兜底强制关闭。
+- **打包图标**：`afterPack + rcedit` 注入 exe 图标与 Windows 版本元数据，绕开 electron-builder 自带 rcedit 的 winCodeSign 解压权限问题；NSIS 显式指定 installer/uninstaller 图标。
 
 ## 更新文档变更
 
@@ -46,22 +48,22 @@
 | --- | --- | --- |
 | `npm run typecheck` | 通过（exit 0） | 重构后复验 |
 | `npm run lint` | 通过（exit 0） | 0 错误 0 警告 |
-| `npm run test` | 通过（exit 0） | 35 文件 / 257 用例 |
+| `npm run test` | 通过（exit 0） | 35 文件 / 260 用例 |
 | `npm run build` | 通过（exit 0） | renderer + electron + 图标/迁移/模板复制 |
-| 隐藏 UI e2e | 12/12 通过 | startup、ui-onboarding（4）、ui-settings（6）、registry-wizard（1）；窗口隐藏，无桌面闪烁 |
-| 完整 e2e（第一次） | 25 passed / 2 skipped / 1 failed | 唯一失败为 `settings-back` 关闭窗口的点击竞态；helper 已加 catch，单条复跑通过 |
-| 完整 e2e（复跑） | 待复跑 | 修复 helper 后尚未重新跑全量，见 `docs/plan/tray-ui-followups.md` |
-| 托盘冒烟 | 通过 | 生产模式启动（tray enabled、已配置白名单），`app.isReady()=true`，悬浮窗 `visible=false`，无崩溃 |
-| 视觉检查 | 通过 | 截取 onboarding / 就绪悬浮窗 / 设置通用 / 设置登记册，确认自适应高度、排版、层级 |
-| `npx playwright test --list` | 通过 | 28 tests / 12 files |
+| `npx playwright test`（全量） | **27 passed / 2 skipped** | 窗口隐藏，无桌面闪烁；2 个 package-smoke 在未打包时自跳过 |
+| `npm run dist:win` | 通过（exit 0） | NSIS + Portable + `latest.yml`；afterPack 注入图标与版本元数据 |
+| packaged smoke | 2/2 通过 | `FILE_PILOT_RUN_PACKAGED_SMOKE=1`，真实启动 win-unpacked |
+| packaged tray smoke | 通过 | 打包产物 + 已配置白名单：`isReady=true`、悬浮窗 `visible=false` |
+| 图标验证 | 通过 | exe / installer / portable 三者提取图标均为新薄荷文件夹图标；`ProductName=File Pilot`、版本 `0.1.0` |
+| 视觉检查 | 通过 | onboarding / 就绪悬浮窗 / 设置通用 / 设置登记册，确认自适应高度、排版、层级 |
+| `npx playwright test --list` | 通过 | 29 tests / 12 files |
 
-未在本次执行：完整 Playwright e2e 的最终复跑、`npm run dist:win` 与打包后 smoke（图标/托盘资产未在本机打包验证）。
+完整 e2e、打包与 packaged smoke 均已在本机完成。打包图标通过 `afterPack + rcedit` 注入，绕开 electron-builder 自带 rcedit 对 winCodeSign 解压的符号链接权限要求。
 
 ## 已知事项
 
-- 托盘图标与原生菜单在 CI/隐藏模式下不创建；托盘路径仅做了本机生产模式冒烟。
-- 设置窗口关闭时若有 600ms 防抖保存未完成，控制器会随窗口销毁；当前自动保存状态可见，极端情况下需重开设置重新保存。
+- 托盘图标与原生菜单在 CI/隐藏模式下不创建；托盘路径已做本机生产模式与打包产物冒烟。
 - 悬浮窗定位依赖托盘 bounds；多显示器/任务栏在顶部的场景已做 fallback，但未做全排列截图验证。
 - 托盘右键菜单文案目前是主进程内的英文硬编码（Open / Settings / Quit），尚未接入 i18n。
 - `pages/app.tsx` 约 494 行；主流程已抽到 `pages/popover/*`，但状态/处理器仍集中在一个文件，后续可继续抽 `usePopoverWorkflow`。
-- `pages/components/rule-management-panel.tsx` 已被设置页的 `RulesPanel` 取代，当前未删除（死代码）。
+- 设置窗口关闭时已通过 `fp:settings-close-requested` / `fp:confirm-settings-close` 握手 flush 600ms 防抖保存，并保留 1.5s 兜底关闭；死代码 `rule-management-panel.tsx` 已删除。
