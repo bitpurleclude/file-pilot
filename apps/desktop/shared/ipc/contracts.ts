@@ -103,7 +103,7 @@ const providerConfigSchema = z.object({
   baseUrl: z.string().url(),
   authType: z.enum(["bearer", "api-key", "none"]),
   apiKey: z.string().optional(),
-  protocol: z.enum(["openai"]),
+  protocol: z.enum(["openai", "custom"]),
   primaryModel: z.string().min(1),
   secondaryModel: z.string().min(1),
   modelControlMode: z.enum(["intensity", "manual"]),
@@ -226,7 +226,7 @@ export const testProviderConnectionRequestSchema = z.object({
   apiKey: z.string().optional(),
   model: z.string().min(1),
   authType: z.enum(["bearer", "api-key", "none"]),
-  protocol: z.enum(["openai"]),
+  protocol: z.enum(["openai", "custom"]),
   endpoint: z.string().optional(),
   customHeaders: z.record(z.string()).optional()
 });

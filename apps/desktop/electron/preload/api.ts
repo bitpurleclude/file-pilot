@@ -79,7 +79,7 @@ export interface FilePilotApi {
     apiKey?: string;
     model: string;
     authType: "bearer" | "api-key" | "none";
-    protocol: "openai";
+    protocol: "openai" | "local-decision" | "custom";
     endpoint?: string;
     customHeaders?: Record<string, string>;
   }): Promise<IpcResult<{ success: boolean }>>;
