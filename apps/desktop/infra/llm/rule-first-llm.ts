@@ -1,9 +1,15 @@
 import { z } from "zod";
 
-import { buildLocalFallback, type LlmClassifier } from "../../core/usecases/classify-files.js";
+import {
+  buildLocalFallback,
+  type ClassifyInput,
+  type LlmClassifier
+} from "../../core/usecases/classify-files.js";
 import { LLM_CONFIG } from "../../shared/config/llm.config.js";
+import type { CoordinateOption } from "../../shared/types/registry.js";
 import type { AppSettings } from "../../shared/types/settings.js";
-import type { Classification, ContentSummary, FileItem } from "../../shared/types/workflow.js";
+import type { Classification } from "../../shared/types/workflow.js";
+import { validateProjectOutput } from "./coordinate-output.js";
 import { callLlmWithFallback } from "./llm-gateway.js";
 import { extractJsonPayload } from "./provider-adapter.js";
 import type { LlmUsage } from "./provider-adapter.js";
@@ -42,7 +48,46 @@ const classifyBatchEntrySchema = classifyResponseSchema.extend({
 type ParsedClassification = z.infer<typeof classifyResponseSchema>;
 type ParsedBatchEntry = z.infer<typeof classifyBatchEntrySchema>;
 
-type ClassifyInput = { item: FileItem; summary: ContentSummary };
+// classify/classifyMany 的输入契约复用 classify-files 的 ClassifyInput（含可选 coordinates，
+// 与 LlmClassifier 接口同步扩展）。
+
+/** 坐标审计 reason（governance-design.md §4.3，便于按 reason 过滤审计日志）。 */
+const COORD_CLAIMED_REASON = "coord:claimed";
+const COORD_NEW_PROPOSAL_REASON = "coord:new-proposal";
+const COORD_INVALID_DEGRADED_REASON = "coord:invalid-degraded";
+
+/**
+ * project 输出判定：
+ * - passthrough：未提供坐标清单（老调用方），不做校验；
+ * - claimed / new：坐标命中清单 / NEW: 提案，project 原样保留并携带审计 reason；
+ * - invalid：清单外自由命名等，调用方视为无效输出走既有降级链路。
+ */
+type ProjectJudge =
+  | { verdict: "passthrough"; reason: null }
+  | { verdict: "claimed"; reason: typeof COORD_CLAIMED_REASON }
+  | { verdict: "new"; reason: typeof COORD_NEW_PROPOSAL_REASON }
+  | { verdict: "invalid" };
+
+const judgeProject = (
+  project: string,
+  coordinates: readonly CoordinateOption[] | undefined
+): ProjectJudge => {
+  // An empty list means "registry exists but nothing registered yet" — the
+  // prompt rendered no coordinate section, so the model was never asked to
+  // claim one. Treat it the same as no coordinates (passthrough).
+  if (coordinates === undefined || coordinates.length === 0) {
+    return { verdict: "passthrough", reason: null };
+  }
+
+  const validated = validateProjectOutput(project, coordinates);
+  if (validated.kind === "coordinate") {
+    return { verdict: "claimed", reason: COORD_CLAIMED_REASON };
+  }
+  if (validated.kind === "new") {
+    return { verdict: "new", reason: COORD_NEW_PROPOSAL_REASON };
+  }
+  return { verdict: "invalid" };
+};
 
 type LlmCallOutcome = {
   model: string;
@@ -60,7 +105,8 @@ const buildUsageReason = (usage: LlmUsage | undefined): string | null => {
 const toClassification = (
   parsed: ParsedClassification,
   callResult: LlmCallOutcome,
-  promptVersion: string
+  promptVersion: string,
+  coordReason: string | null
 ): Classification => {
   const usageReason = buildUsageReason(callResult.usage);
 
@@ -70,6 +116,7 @@ const toClassification = (
     confidence: parsed.confidence,
     reasons: [
       ...parsed.reasons,
+      ...(coordReason === null ? [] : [coordReason]),
       `prompt_version:${promptVersion}`,
       `model:${callResult.model}`,
       ...(usageReason === null ? [] : [usageReason])
@@ -173,7 +220,13 @@ export class RuleFirstLlmClassifier implements LlmClassifier {
       if (payload !== null) {
         try {
           const parsed = classifyResponseSchema.parse(JSON.parse(payload));
-          return toClassification(parsed, result, CLASSIFY_PROMPT_VERSION);
+          const judge = judgeProject(parsed.project, input.coordinates);
+          if (judge.verdict === "invalid") {
+            // 坐标模式下输出了清单外 project 且无 NEW: 前缀 → 该条输出无效，本地兜底并留审计 reason。
+            const fallback = buildLocalFallback(input.item, "llm-fallback");
+            return { ...fallback, reasons: [...fallback.reasons, COORD_INVALID_DEGRADED_REASON] };
+          }
+          return toClassification(parsed, result, CLASSIFY_PROMPT_VERSION, judge.reason);
         } catch {
           // LLM 输出不符合 schema — 静默降级到本地规则兜底（有意的最小化吞错）。
         }
@@ -205,13 +258,16 @@ export class RuleFirstLlmClassifier implements LlmClassifier {
 
   /**
    * 批量分类一个分块：
-   * 1. 渲染批量模板并调用 LLM（主→备模型）；
-   * 2. 从响应中稳健提取 JSON 数组并逐条校验，按 id 与输入对齐；
-   * 3. 有效条目携带 usage reason（usage:pt:<p>:ct:<c>）用于成本观测；
-   * 4. 缺失/无效条目与整块失败均逐条降级到单文件 classify。
+   * 1. 渲染批量模板并调用 LLM（主→备模型）；提供坐标清单时模板注入坐标段；
+   * 2. 从响应中稳健提取 JSON 数组并逐条校验（schema + 坐标认领校验），按 id 与输入对齐；
+   * 3. 有效条目携带 usage reason（usage:pt:<p>:ct:<c>）与坐标审计 reason 用于观测；
+   * 4. 缺失/无效条目（含 project 不在清单且无 NEW: 前缀）与整块失败均逐条降级到单文件 classify。
    */
   private async classifyChunk(chunk: ClassifyInput[]): Promise<Array<Classification | null>> {
-    const prompt = renderClassifyBatchPrompt(chunk);
+    // 坐标清单在一次 analyze 调用内同质（上游契约）：批式模板与批式校验统一采用首条输入的
+    // 清单；逐条降级路径（this.classify）仍使用各条自己的清单。
+    const chunkCoordinates = chunk[0]?.coordinates;
+    const prompt = renderClassifyBatchPrompt(chunk, chunkCoordinates);
     const result = await callLlmWithFallback({
       settings: this.settings,
       maxTokens: LLM_CONFIG.maxTokensBatch,
@@ -232,9 +288,15 @@ export class RuleFirstLlmClassifier implements LlmClassifier {
       if (entries !== null) {
         const entriesById = new Map<string, Classification>();
         for (const entry of entries) {
-          if (!entriesById.has(entry.id)) {
-            entriesById.set(entry.id, toClassification(entry, result, CLASSIFY_BATCH_PROMPT_VERSION));
+          if (entriesById.has(entry.id)) {
+            continue;
           }
+          const judge = judgeProject(entry.project, chunkCoordinates);
+          if (judge.verdict === "invalid") {
+            // project 不在清单内且无 NEW: 前缀 → 该条输出无效，跳过以走逐条 classify 降级。
+            continue;
+          }
+          entriesById.set(entry.id, toClassification(entry, result, CLASSIFY_BATCH_PROMPT_VERSION, judge.reason));
         }
 
         const results: Array<Classification | null> = [];

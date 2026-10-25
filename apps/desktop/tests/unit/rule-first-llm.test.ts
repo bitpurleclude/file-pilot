@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { RuleFirstLlmClassifier } from "../../infra/llm/rule-first-llm.js";
+import type { CoordinateOption } from "../../shared/types/registry.js";
 import type { AppSettings } from "../../shared/types/settings.js";
 import type { ContentSummary, FileItem } from "../../shared/types/workflow.js";
 
@@ -432,5 +433,145 @@ describe("rule-first-llm classifyMany", () => {
     const results = await classifier.classifyMany([]);
 
     expect(results).toEqual([]);
+  });
+});
+
+describe("rule-first-llm coordinate claim validation", () => {
+  const coordinates: CoordinateOption[] = [
+    { areaNumber: 30, areaName: "考公", projectNumber: 1, projectName: "行测" },
+    { areaNumber: 40, areaName: "开发", projectNumber: 2, projectName: "工具" }
+  ];
+  const CLAIMED = "30-考公/1-行测";
+
+  it("renders the coordinate list into the prompt and keeps a claimed coordinate", async () => {
+    let userPrompt = "";
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      userPrompt = readUserContent(init);
+      return singleResponse({
+        purpose: "Documents",
+        project: CLAIMED,
+        confidence: 0.9,
+        reasons: ["claim"]
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify({ ...defaultInput, coordinates });
+
+    expect(userPrompt).toContain("可用项目坐标清单");
+    expect(userPrompt).toContain(`- ${CLAIMED}`);
+    expect(userPrompt).toContain("- 40-开发/2-工具");
+    expect(userPrompt).toContain("NEW:<简短中文名>");
+    expect(result?.project).toBe(CLAIMED);
+    expect(result?.reasons).toContain("coord:claimed");
+  });
+
+  it("keeps a NEW: proposal as-is and appends coord:new-proposal", async () => {
+    const fetchMock = vi.fn(async () => singleResponse({
+      purpose: "Study",
+      project: "NEW:考试资料",
+      confidence: 0.9,
+      reasons: ["proposal"]
+    }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify({ ...defaultInput, coordinates });
+
+    expect(result?.project).toBe("NEW:考试资料");
+    expect(result?.decisionSource).toBe("llm-primary");
+    expect(result?.reasons).toContain("coord:new-proposal");
+    expect(result?.reasons).not.toContain("coord:claimed");
+  });
+
+  it("degrades to local fallback with coord:invalid-degraded when the project misses the list", async () => {
+    const fetchMock = vi.fn(async () => singleResponse({
+      purpose: "Documents",
+      project: "自由发挥的项目",
+      confidence: 0.9,
+      reasons: ["off-list"]
+    }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify({ ...defaultInput, coordinates });
+
+    expect(result?.decisionSource).toBe("local-fallback");
+    expect(result?.project).toBe("默认项目");
+    expect(result?.reasons).toContain("coord:invalid-degraded");
+  });
+
+  it("keeps claimed/NEW batch entries and degrades an off-list entry to per-item classify", async () => {
+    const fetchMock = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => {
+      if (isBatchRequest(init)) {
+        return batchResponse([
+          { id: "a", purpose: "Work", project: CLAIMED, confidence: 0.9, reasons: ["claim"] },
+          { id: "b", purpose: "Study", project: "NEW:考试资料", confidence: 0.9, reasons: ["proposal"] },
+          { id: "c", purpose: "Code", project: "清单外项目", confidence: 0.9, reasons: ["off-list"] }
+        ]);
+      }
+      // c 逐条降级后的单文件调用：返回清单内坐标。
+      return singleResponse({
+        purpose: "Code",
+        project: "40-开发/2-工具",
+        confidence: 0.9,
+        reasons: ["solo-claim"]
+      });
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const results = await classifier.classifyMany([
+      { ...makeInput("a"), coordinates },
+      { ...makeInput("b"), coordinates },
+      { ...makeInput("c"), coordinates }
+    ]);
+
+    expect(results.length).toBe(3);
+    expect(results[0]?.project).toBe(CLAIMED);
+    expect(results[0]?.reasons).toContain("coord:claimed");
+    expect(results[0]?.promptVersion).toBe("classify-batch.v1");
+    expect(results[1]?.project).toBe("NEW:考试资料");
+    expect(results[1]?.reasons).toContain("coord:new-proposal");
+    // 清单外条目 → 该条无效 → 逐条 classify 降级（单文件模板 + 重新校验）。
+    expect(results[2]?.project).toBe("40-开发/2-工具");
+    expect(results[2]?.reasons).toContain("coord:claimed");
+    expect(results[2]?.promptVersion).toBe("classify.v1");
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("behaves identically to the legacy path when coordinates are not provided", async () => {
+    const fetchMock = vi.fn(async () => singleResponse({
+      purpose: "Documents",
+      project: "自由发挥的项目",
+      confidence: 0.9,
+      reasons: ["legacy"]
+    }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify(defaultInput);
+
+    expect(result?.project).toBe("自由发挥的项目");
+    expect(result?.decisionSource).toBe("llm-primary");
+    expect(result?.reasons.every((reason) => !reason.startsWith("coord:"))).toBe(true);
+  });
+
+  it("treats an empty coordinate list the same as no coordinates (registry exists but is empty)", async () => {
+    const fetchMock = vi.fn(async () => singleResponse({
+      purpose: "Documents",
+      project: "StubProject",
+      confidence: 0.9,
+      reasons: ["legacy"]
+    }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify({ ...defaultInput, coordinates: [] });
+
+    expect(result?.project).toBe("StubProject");
+    expect(result?.decisionSource).toBe("llm-primary");
+    expect(result?.reasons.every((reason) => !reason.startsWith("coord:"))).toBe(true);
   });
 });

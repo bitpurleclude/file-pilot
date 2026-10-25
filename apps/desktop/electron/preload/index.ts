@@ -25,7 +25,13 @@ const api: FilePilotApi = {
   listRules: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.listRules, payload ?? {}),
   updateRule: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.updateRule, payload),
   saveSettings: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.saveSettings, payload),
-  testProviderConnection: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.testProviderConnection, payload)
+  testProviderConnection: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.testProviderConnection, payload),
+  registryList: async () => ipcRenderer.invoke(IPC_CHANNELS.registryList, {}),
+  registryCreateArea: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryCreateArea, payload),
+  registryCreateProject: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryCreateProject, payload),
+  registryArchive: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryArchive, payload),
+  registryCheckDuplicate: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryCheckDuplicate, payload),
+  registryProposals: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.registryProposals, payload ?? {})
 };
 
 contextBridge.exposeInMainWorld("filePilotApi", api);

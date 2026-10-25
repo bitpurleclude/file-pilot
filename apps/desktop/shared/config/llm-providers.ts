@@ -242,9 +242,9 @@ export const normalizeProviderConfig = (provider: LlmProviderConfig): LlmProvide
 
   return {
     ...provider,
-    // Legacy "custom" protocol values are folded back to "openai": every
-    // supported endpoint speaks the OpenAI-compatible wire format.
-    protocol: "openai",
+    // Legacy "custom" folds back to "openai"; the governance-layer
+    // "local-decision" protocol must survive normalization (shadow mode).
+    protocol: provider.protocol === "local-decision" ? "local-decision" : "openai",
     modelControlMode,
     intensity,
     intensityProfiles

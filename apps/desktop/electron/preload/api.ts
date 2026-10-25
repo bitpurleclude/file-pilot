@@ -1,4 +1,13 @@
 import type { IpcResult } from "../../shared/errors/app-error.js";
+import type {
+  RegistryArchiveData,
+  RegistryCheckDuplicateData,
+  RegistryCreateAreaData,
+  RegistryCreateProjectData,
+  RegistryIpcResult,
+  RegistryListData,
+  RegistryProposalsData
+} from "../../shared/ipc/contracts.js";
 import type { ClassificationRule, RuleUpdatePayload } from "../../shared/types/rules.js";
 import type { AppSettings } from "../../shared/types/settings.js";
 import type { DownloadedUpdateInfo, UpdateInfo } from "../../shared/types/updater.js";
@@ -74,6 +83,17 @@ export interface FilePilotApi {
     endpoint?: string;
     customHeaders?: Record<string, string>;
   }): Promise<IpcResult<{ success: boolean }>>;
+  // Registry (governance stage 1): errors may carry dedup evidence in details.
+  registryList(): Promise<RegistryIpcResult<RegistryListData>>;
+  registryCreateArea(payload: { name: string }): Promise<RegistryIpcResult<RegistryCreateAreaData>>;
+  registryCreateProject(payload: {
+    areaId: string;
+    name: string;
+    aliases?: string[];
+  }): Promise<RegistryIpcResult<RegistryCreateProjectData>>;
+  registryArchive(payload: { kind: "area" | "project"; id: string }): Promise<RegistryIpcResult<RegistryArchiveData>>;
+  registryCheckDuplicate(payload: { name: string }): Promise<RegistryIpcResult<RegistryCheckDuplicateData>>;
+  registryProposals(payload?: { limit?: number }): Promise<RegistryIpcResult<RegistryProposalsData>>;
 }
 
 declare global {

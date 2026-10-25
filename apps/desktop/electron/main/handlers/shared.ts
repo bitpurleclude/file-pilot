@@ -84,6 +84,9 @@ export const toDecisionRecords = (sessionId: string, items: ProcessedSessionItem
     source: item.decisionSource,
     confidence: item.classification.confidence,
     purpose: item.classification.purpose,
+    // Note: NEW: proposals are persisted via this column and surfaced by
+    // registry-repository.listProposals; coordinate/uncoordinated markers live
+    // on session_items (the classification_decisions table has no such columns).
     project: item.classification.project,
     ...(item.classification.promptVersion === undefined ? {} : { promptVersion: item.classification.promptVersion }),
     ...(item.classification.model === undefined ? {} : { model: item.classification.model }),

@@ -199,5 +199,35 @@
       "whitelistDirectories": "白名单目录",
       "whitelistPlaceholder": "使用 ';' 分隔多个目录"
     }
+  },
+  "registry": {
+    "tabTitle": "登记册",
+    "title": "登记册",
+    "refresh": "刷新",
+    "empty": "暂无领域，先创建一个领域",
+    "areas": "领域",
+    "projects": "项目",
+    "archived": "已归档",
+    "projectCount": "共 {{total}} 个项目",
+    "noProjects": "该领域下暂无项目",
+    "newAreaName": "新建领域名称",
+    "createArea": "创建领域",
+    "newProjectName": "新建项目名称",
+    "selectArea": "选择领域",
+    "createProject": "创建项目",
+    "nextSlotHint": "将认领 {{slot}}-{{name}}",
+    "archive": "归档",
+    "dedupChecking": "查重中…",
+    "dedupClean": "未发现重复或相似名称",
+    "level": {
+      "exact": "完全重复",
+      "similar": "名称相似",
+      "semantic": "语义疑似"
+    },
+    "warningsTitle": "相似名称警告（仍已创建）",
+    "proposalsTitle": "新项目提案",
+    "proposalsEmpty": "暂无待处理提案",
+    "proposalMeta": "{{purpose}} · 置信度 {{confidence}}",
+    "proposalIgnore": "忽略"
   }
 }

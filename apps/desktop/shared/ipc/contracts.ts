@@ -1,5 +1,8 @@
 import { z } from "zod";
 
+import type { DecisionSource, Purpose } from "../types/workflow.js";
+import type { RegistryArea, RegistryProject } from "../types/registry.js";
+
 const purposeSchema = z.enum([
   "Documents",
   "Media",
@@ -249,5 +252,129 @@ export const IPC_CHANNELS = {
   listRules: "fp:list-rules",
   updateRule: "fp:update-rule",
   saveSettings: "fp:save-settings",
-  testProviderConnection: "fp:test-provider-connection"
+  testProviderConnection: "fp:test-provider-connection",
+  registryList: "fp:registry-list",
+  registryCreateArea: "fp:registry-create-area",
+  registryCreateProject: "fp:registry-create-project",
+  registryArchive: "fp:registry-archive",
+  registryCheckDuplicate: "fp:registry-check-duplicate",
+  registryProposals: "fp:registry-proposals"
 } as const;
+
+// ==== Registry (governance layer stage 1: birth protocol) ====
+
+export const registryListRequestSchema = z.object({}).default({});
+
+export const registryCreateAreaRequestSchema = z.object({
+  name: z.string().min(1).max(64)
+}).strict();
+
+export const registryCreateProjectRequestSchema = z.object({
+  areaId: z.string().uuid(),
+  name: z.string().min(1).max(64),
+  aliases: z.array(z.string().min(1)).optional()
+}).strict();
+
+export const registryArchiveRequestSchema = z.object({
+  kind: z.enum(["area", "project"]),
+  id: z.string().uuid()
+}).strict();
+
+export const registryCheckDuplicateRequestSchema = z.object({
+  name: z.string().min(1).max(64)
+}).strict();
+
+export const registryProposalsRequestSchema = z.object({
+  limit: z.number().int().min(1).max(100).optional()
+}).strict().default({});
+
+export type RegistryListRequest = z.infer<typeof registryListRequestSchema>;
+export type RegistryCreateAreaRequest = z.infer<typeof registryCreateAreaRequestSchema>;
+export type RegistryCreateProjectRequest = z.infer<typeof registryCreateProjectRequestSchema>;
+export type RegistryArchiveRequest = z.infer<typeof registryArchiveRequestSchema>;
+export type RegistryCheckDuplicateRequest = z.infer<typeof registryCheckDuplicateRequestSchema>;
+export type RegistryProposalsRequest = z.infer<typeof registryProposalsRequestSchema>;
+
+/**
+ * Three-level dedup evidence (birth protocol §2):
+ * - exact: name/alias matches an active area or project (case-insensitive, trimmed);
+ * - similar: normalized edit distance or suffix-only difference;
+ * - semantic: LLM judge verdict (same/unsure) on name + sample text.
+ * Evidence arrays are always sorted exact > similar > semantic.
+ */
+export interface DedupEvidence {
+  level: "exact" | "similar" | "semantic";
+  matchedName: string;
+  matchedKind: "area" | "project";
+  detail: string;
+  score?: number;
+}
+
+/** One existing-name judgment handed back by a semantic dedup judge. */
+export interface DedupJudgeEntry {
+  name: string;
+  verdict: "same" | "different" | "unsure";
+  reason: string;
+}
+
+/** Context entry given to a semantic dedup judge: name plus optional sample text. */
+export interface DedupJudgeInput {
+  name: string;
+  sampleText?: string;
+}
+
+/**
+ * Pluggable semantic dedup judge. Pure decision only — prompt/timeout/parsing
+ * live with the injected implementation (see registry-handlers default judge).
+ */
+export type DedupJudge = (
+  candidate: string,
+  existing: DedupJudgeInput[]
+) => Promise<DedupJudgeEntry[]>;
+
+/**
+ * Registry results extend the unified IpcResult error with optional structured
+ * details (dedup evidence travels in error.details for REGISTRY_DUPLICATE_NAME).
+ */
+export type RegistryIpcResult<T> =
+  | { ok: true; data: T }
+  | { ok: false; error: { code: string; message: string; details?: Record<string, unknown> } };
+
+export interface RegistryListData {
+  areas: RegistryArea[];
+  projects: RegistryProject[];
+}
+
+export interface RegistryCheckDuplicateData {
+  evidence: DedupEvidence[];
+}
+
+export interface RegistryCreateAreaData {
+  area: RegistryArea;
+  warnings: DedupEvidence[];
+}
+
+export interface RegistryCreateProjectData {
+  project: RegistryProject;
+  warnings: DedupEvidence[];
+}
+
+export interface RegistryArchiveData {
+  archived: true;
+}
+
+/** Wire shape of a `NEW:`-prefixed project proposal (mirrors the stored decision). */
+export interface RegistryProposalDto {
+  id: string;
+  sessionId: string;
+  fileId: string;
+  proposedName: string;
+  purpose: Purpose;
+  confidence: number;
+  source: DecisionSource;
+  createdAt: string;
+}
+
+export interface RegistryProposalsData {
+  proposals: RegistryProposalDto[];
+}

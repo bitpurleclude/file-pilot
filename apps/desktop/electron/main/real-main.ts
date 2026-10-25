@@ -1,10 +1,12 @@
 import { app, BrowserWindow, ipcMain } from "electron";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
 
 import { writeLogRecord } from "../../infra/logging/file-logger.js";
 import { bootstrapSqliteStorage } from "../../infra/storage/sqlite/bootstrap.js";
 import { closeAllSqliteDatabases } from "../../infra/storage/sqlite/db.js";
 import { checkForUpdates } from "../../infra/updater/check-updates.js";
+import { REGISTRY_CONFIG } from "../../shared/config/registry.config.js";
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import { handlers, type HandlerContext } from "./handler-registry.js";
@@ -58,6 +60,38 @@ const registerIpc = (context: HandlerContext): void => {
   ipcMain.handle(IPC_CHANNELS.updateRule, async (_event, payload) => handlers.updateRule(context, payload));
   ipcMain.handle(IPC_CHANNELS.saveSettings, async (_event, payload) => handlers.saveSettingsHandler(context, payload));
   ipcMain.handle(IPC_CHANNELS.testProviderConnection, async (_event, payload) => handlers.testProviderConnectionHandler(context, payload));
+  ipcMain.handle(IPC_CHANNELS.registryList, async (_event, payload) => handlers.registryList(context, payload));
+  ipcMain.handle(IPC_CHANNELS.registryCreateArea, async (_event, payload) => handlers.registryCreateArea(context, payload));
+  ipcMain.handle(IPC_CHANNELS.registryCreateProject, async (_event, payload) => handlers.registryCreateProject(context, payload));
+  ipcMain.handle(IPC_CHANNELS.registryArchive, async (_event, payload) => handlers.registryArchive(context, payload));
+  ipcMain.handle(IPC_CHANNELS.registryCheckDuplicate, async (_event, payload) => handlers.registryCheckDuplicate(context, payload));
+  ipcMain.handle(IPC_CHANNELS.registryProposals, async (_event, payload) => handlers.registryProposals(context, payload));
+};
+
+// Birth protocol container directories (governance-design §1.3): the workspace
+// always shows 00-Inbox / 90-Archive / 99-Temp. recursive mkdir is idempotent,
+// so existing directories are fine; failures are audit-logged only (non-fatal).
+const ensureRegistryContainers = (workspaceRoot: string): void => {
+  const containers = [
+    REGISTRY_CONFIG.containerInbox,
+    REGISTRY_CONFIG.containerArchive,
+    REGISTRY_CONFIG.containerTemp
+  ];
+  for (const container of containers) {
+    const dir = join(workspaceRoot, container);
+    try {
+      mkdirSync(dir, { recursive: true });
+    } catch (error) {
+      void safeWriteMainLog({
+        level: "error",
+        category: "audit",
+        code: "REGISTRY_CONTAINER_MKDIR_FAILED",
+        message: error instanceof Error ? error.message : "unknown error",
+        traceId: crypto.randomUUID(),
+        details: { dir }
+      });
+    }
+  }
 };
 
 const hasValue = (value: string | undefined): value is string =>
@@ -172,6 +206,8 @@ if (!app.requestSingleInstanceLock()) {
       });
       throw error;
     }
+
+    ensureRegistryContainers(workspaceRoot);
 
     registerIpc(context);
     mainWindow = await createMainWindow();

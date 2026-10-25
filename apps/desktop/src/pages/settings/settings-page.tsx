@@ -11,6 +11,7 @@ import { ClassificationPanel } from "./panels/classification-panel.js";
 import { GeneralPanel } from "./panels/general-panel.js";
 import { LlmPanel } from "./panels/llm-panel.js";
 import { LogsPanel } from "./panels/logs-panel.js";
+import { RegistryPanel } from "./panels/registry-panel.js";
 import { SettingsAutosaveController, type SettingsAutosaveState } from "./settings-autosave-controller.js";
 import type { SettingsDraftChange } from "./settings-change.js";
 
@@ -128,6 +129,7 @@ export const SettingsPage = ({
         <TabsList className="mb-4">
           <TabsTrigger value="general" data-testid="settings-tab-general">{t("settings.general.title")}</TabsTrigger>
           <TabsTrigger value="classification" data-testid="settings-tab-classification">{t("settings.classification.title")}</TabsTrigger>
+          <TabsTrigger value="registry" data-testid="settings-tab-registry">{t("registry.tabTitle")}</TabsTrigger>
           <TabsTrigger value="llm" data-testid="settings-tab-llm">{t("settings.llm.title")}</TabsTrigger>
           <TabsTrigger value="logs" data-testid="settings-tab-logs">{t("settings.logsSettings.title")}</TabsTrigger>
           <TabsTrigger value="advanced" data-testid="settings-tab-advanced">{t("settings.advanced.title")}</TabsTrigger>
@@ -141,6 +143,10 @@ export const SettingsPage = ({
 
             <TabsContent value="classification">
               <ClassificationPanel settings={draft} onChange={handleDraftChange} />
+            </TabsContent>
+
+            <TabsContent value="registry">
+              <RegistryPanel />
             </TabsContent>
 
             <TabsContent value="llm">

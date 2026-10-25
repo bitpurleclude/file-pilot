@@ -1,5 +1,7 @@
 import { createServer, type IncomingHttpHeaders, type Server } from "node:http";
 
+import { LLM_CONFIG } from "../../../shared/config/llm.config.js";
+
 /**
  * LLM OpenAI 兼容 stub（e2e 专用，纯 node:http 实现，不访问任何外部 API）。
  *
@@ -20,6 +22,32 @@ const BATCH_PROMPT_MARKERS: readonly string[] = ["输入文件列表", "JSON 数
 
 /** 单文件模板（classify.v1.njk）渲染结果独有特征串，用于断言判别的反向正确性。 */
 export const SINGLE_PROMPT_MARKER = "摘要：";
+
+/**
+ * 坐标清单段特征（governance-design.md §4.3）：classify / classify-batch 模板在传入
+ * coordinates 时渲染的条件段标题，两个模板一致，且不出现在无坐标（legacy）输出中。
+ * 清单行格式：`- <areaNumber>-<areaName>/<projectNumber>-<projectName>`。
+ */
+export const COORDINATE_LIST_MARKER = "可用项目坐标清单";
+
+/**
+ * 坐标清单行提取模式：行首 "- " + `数字-名称/数字-名称`。
+ * 领域名不含 "/"（路径分隔符），项目名取到行尾；"- id: <uuid>" 等批式 id 行以非数字开头，
+ * 不会被误匹配。
+ */
+const COORDINATE_LINE_PATTERN = /^\s*-\s*(\d+-[^/\r\n]+\/\d+-[^\r\n]+)$/gm;
+
+/** 从提示词中按顺序提取全部坐标行（如 "30-考公/1-行测"）。 */
+export const extractCoordinateLines = (userMessage: string): string[] => {
+  const lines: string[] = [];
+  for (const match of userMessage.matchAll(COORDINATE_LINE_PATTERN)) {
+    const line = match[1];
+    if (line !== undefined && line.length > 0) {
+      lines.push(line);
+    }
+  }
+  return lines;
+};
 
 /**
  * 批式模板逐条渲染的 id 行形如 "- id: <uuid>"（模板第 23 行 `- id: {{ file.id }}`）。
@@ -52,6 +80,15 @@ export type StubResponder = (request: StubRequest) => StubResponderResult | unde
 export interface LlmStubOptions {
   /** "unauthorized"：所有请求返回 401（不重试、不切备模型的确定性失败路径） */
   mode?: "unauthorized";
+  /**
+   * 坐标模式（治理层阶段①，仅影响默认响应；显式 responder 仍完全接管）：
+   * - "claim-first"：请求提示词含坐标清单段（特征见 COORDINATE_LIST_MARKER）时，
+   *   默认响应的 project 返回清单第一条坐标串（提示词无清单段时维持 StubProject，
+   *   由 classifier 的坐标校验走 coord:invalid 降级，便于 e2e 观察降级链路）；
+   * - "new-proposal"：默认响应的 project 返回 NEW:StubProposal（提议新建，走建域向导链路）；
+   * - 未设置：保持既有行为（project 恒为 StubProject）。
+   */
+  coordinateMode?: "claim-first" | "new-proposal";
   /** 自定义响应器；返回 undefined 时使用默认确定性响应 */
   responder?: StubResponder;
 }
@@ -139,12 +176,35 @@ const parseChatRequestBody = (body: string): { model: string; userMessage: strin
 
 const fenceJson = (payload: string): string => "```json\n" + payload + "\n```";
 
-const buildDefaultContent = (request: StubRequest): string => {
+/** 按坐标模式决定默认响应的 project 字段。 */
+const buildDefaultProject = (
+  userMessage: string,
+  coordinateMode: "claim-first" | "new-proposal" | undefined
+): string => {
+  if (coordinateMode === "new-proposal") {
+    return LLM_CONFIG.newProjectPrefix + "StubProposal";
+  }
+  if (coordinateMode === "claim-first") {
+    const firstCoordinate = extractCoordinateLines(userMessage)[0];
+    if (firstCoordinate !== undefined) {
+      return firstCoordinate;
+    }
+    // 提示词无清单段（R2 坐标接线未就绪或登记册无坐标）→ 维持原默认 project，
+    // 由 classifier 的坐标校验走 coord:invalid 降级链路。
+  }
+  return STUB_CLASSIFICATION.project;
+};
+
+const buildDefaultContent = (request: StubRequest, coordinateMode: LlmStubOptions["coordinateMode"]): string => {
+  const classification = {
+    ...STUB_CLASSIFICATION,
+    project: buildDefaultProject(request.userMessage, coordinateMode)
+  };
   if (request.isBatch) {
-    const entries = request.ids.map((id) => ({ id, ...STUB_CLASSIFICATION }));
+    const entries = request.ids.map((id) => ({ id, ...classification }));
     return fenceJson(JSON.stringify(entries, null, 2));
   }
-  return fenceJson(JSON.stringify(STUB_CLASSIFICATION, null, 2));
+  return fenceJson(JSON.stringify(classification, null, 2));
 };
 
 const buildChatCompletionBody = (model: string, content: string): Record<string, unknown> => {
@@ -214,7 +274,7 @@ export const startLlmStub = async (options: LlmStubOptions = {}): Promise<LlmStu
 
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify(
-        buildChatCompletionBody(request.model, buildDefaultContent(request))
+        buildChatCompletionBody(request.model, buildDefaultContent(request, options.coordinateMode))
       ));
     });
     req.on("error", () => {

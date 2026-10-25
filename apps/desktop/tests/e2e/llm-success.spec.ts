@@ -8,8 +8,10 @@ import type { ContentSummary, FileItem } from "../../shared/types/workflow.js";
 import { launchElectronApp } from "./helpers/electron-launch.js";
 import type { IsolatedElectronApplication } from "./helpers/electron-launch.js";
 import {
+  COORDINATE_LIST_MARKER,
   SINGLE_PROMPT_MARKER,
   extractBatchIds,
+  extractCoordinateLines,
   isBatchPrompt,
   startLlmStub
 } from "./helpers/llm-stub.js";
@@ -379,6 +381,126 @@ test("批式响应非法 JSON：整块降级逐条单调用，analyze 仍成功�
     for (const request of requests) {
       expect(request.headers["authorization"]).toBe(`Bearer ${STUB_API_KEY}`);
     }
+  } finally {
+    await electronApp.close();
+    await stub.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+test("无注册表坐标：analyze 成功且提示词不含坐标清单段（legacy 行为回归保护）", async () => {
+  // 治理层阶段①向后兼容：analyze 未携带 registry 坐标（空注册表 / R2 接线前）时，
+  // 单文件与批式模板都不得渲染「可用项目坐标清单」条件段，分类行为与阶段①之前一致。
+  const sandbox = await mkdtemp(join(process.cwd(), "tmp-file-pilot-llm-"));
+  const stub = await startLlmStub();
+  const filePath = join(sandbox, "alpha-llm-e2e.txt");
+  await writeFile(filePath, "zephyr quartz lantern probe", "utf-8");
+  const electronApp = await launchElectronApp();
+  expectIsolatedLaunch(electronApp);
+
+  try {
+    const page = await electronApp.firstWindow();
+    await page.waitForLoadState("domcontentloaded");
+    await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
+    const flow = expectFlowOk(await runWhitelistAndAnalyze(page, {
+      sandboxDir: sandbox,
+      filePaths: [filePath]
+    }));
+
+    expect(flow.items).toHaveLength(1);
+    const item = flow.items[0];
+    if (item === undefined) {
+      throw new Error("unreachable: item asserted present");
+    }
+    expect(item.decisionSource).toBe("llm-primary");
+    expect(item.project).toBe(STUB_PROJECT);
+
+    // 1 个文件：1 次批式 + （默认响应 id 对齐时无降级）→ 至少 1 次请求；每条提示词都不得含清单段。
+    const requests = stub.requests();
+    expect(requests.length).toBeGreaterThanOrEqual(1);
+    for (const request of requests) {
+      expect(request.userMessage).not.toContain(COORDINATE_LIST_MARKER);
+    }
+  } finally {
+    await electronApp.close();
+    await stub.close();
+    await rm(sandbox, { recursive: true, force: true });
+  }
+});
+
+// 坐标接线（Wave1：process-session / session-handlers 把 registry 坐标经 analyze →
+// LlmClassifier input.coordinates 传入 rule-first-llm）与登记册（R4：registry 六通道 +
+// preload API）均已落地，本用例经 IPC 预置「考公/行测」坐标后运行。
+// 预置必须发生在 redirectActiveProvider 之前：默认 provider 无 apiKey，dedup 判官
+// 不会发起任何请求；若先重定向再建域，建域查重会向 stub 发出非分类请求，破坏计数断言。
+test("坐标清单注入：提示词包含清单段且 stub 认领第一条坐标", async () => {
+  const sandbox = await mkdtemp(join(process.cwd(), "tmp-file-pilot-llm-"));
+  const stub = await startLlmStub({ coordinateMode: "claim-first" });
+  const filePath = join(sandbox, "alpha-llm-e2e.txt");
+  await writeFile(filePath, "zephyr quartz lantern probe", "utf-8");
+  const electronApp = await launchElectronApp();
+  expectIsolatedLaunch(electronApp);
+
+  try {
+    const page = await electronApp.firstWindow();
+    await page.waitForLoadState("domcontentloaded");
+    // 种子：经 registry IPC 建「考公」域 +「行测」项目（默认 provider 无 apiKey，不触发查重 LLM）。
+    const seeded = await page.evaluate(async () => {
+      if (window.filePilotApi === undefined) {
+        return { ok: false as const, detail: "window.filePilotApi is missing" };
+      }
+      const api = window.filePilotApi;
+      const area = await api.registryCreateArea({ name: "考公" });
+      if (!area.ok) {
+        return { ok: false as const, detail: area.error.message };
+      }
+      const project = await api.registryCreateProject({ areaId: area.data.area.id, name: "行测" });
+      if (!project.ok) {
+        return { ok: false as const, detail: project.error.message };
+      }
+      return {
+        ok: true as const,
+        coordinate: `${area.data.area.number}-考公/${project.data.project.number}-行测`
+      };
+    });
+    expect(seeded.ok, `registry seeding failed: ${JSON.stringify(seeded)}`).toBe(true);
+    if (!seeded.ok) {
+      throw new Error("unreachable: seeding asserted ok");
+    }
+
+    await redirectActiveProvider(page, { baseUrl: stub.url, apiKey: STUB_API_KEY });
+    const flow = expectFlowOk(await runWhitelistAndAnalyze(page, {
+      sandboxDir: sandbox,
+      filePaths: [filePath]
+    }));
+
+    const requests = stub.requests();
+    expect(requests.length).toBeGreaterThanOrEqual(1);
+    // 每条提示词都注入了坐标清单段，且清单行可被 stub 解析。
+    for (const request of requests) {
+      expect(request.userMessage).toContain(COORDINATE_LIST_MARKER);
+      expect(extractCoordinateLines(request.userMessage).length).toBeGreaterThan(0);
+    }
+
+    // stub 按清单第一条坐标返回 project → classifier 坐标校验命中 → coord:claimed 审计 reason。
+    const firstRequest = requests[0];
+    if (firstRequest === undefined) {
+      throw new Error("unreachable: request asserted present");
+    }
+    const claimedCoordinate = extractCoordinateLines(firstRequest.userMessage)[0];
+    if (claimedCoordinate === undefined) {
+      throw new Error("unreachable: coordinate line asserted present");
+    }
+    // 种子坐标确实进入提示词清单（清单第一条 = 10-考公/1-行测）。
+    expect(claimedCoordinate).toBe(seeded.coordinate);
+    expect(flow.items).toHaveLength(1);
+    const item = flow.items[0];
+    if (item === undefined) {
+      throw new Error("unreachable: item asserted present");
+    }
+    expect(item.decisionSource).toBe("llm-primary");
+    expect(item.project).toBe(claimedCoordinate);
+    expect(item.reasons).toContain("coord:claimed");
   } finally {
     await electronApp.close();
     await stub.close();

@@ -1,7 +1,9 @@
 import { basename, dirname, join } from "node:path";
 
 import { sanitizePathSegment } from "./path-safety.js";
+import { buildCoordinatedTarget } from "./coordinate-resolution.js";
 import { EXECUTOR_CONFIG } from "../../shared/config/executor.config.js";
+import type { CoordinateOption, RegistryCoordinate } from "../../shared/types/registry.js";
 import type { Classification, PlacementPlan } from "../../shared/types/workflow.js";
 
 export { sanitizePathSegment };
@@ -40,21 +42,47 @@ export const buildPlacementPlan = (params: {
   classification: Classification;
   workspaceRoot: string;
   now: Date;
+  /**
+   * When a registry coordinate is provided, the target becomes
+   * `<workspaceRoot>/<NN>-<area>/<x>-<project>/<filename>` (no time bucket —
+   * the coordinate itself is the grouping, governance §4). Without it the
+   * legacy purpose/project[/time-bucket] layout is kept and the plan is
+   * marked `uncoordinated: true`. Omitted/legacy callers behave as before.
+   */
+  coordinate?: RegistryCoordinate | CoordinateOption | null;
 }): PlacementPlan => {
-  const project = sanitizePathSegment(params.classification.project, EXECUTOR_CONFIG.fallbackProjectName);
-  const purpose = sanitizePathSegment(params.classification.purpose, EXECUTOR_CONFIG.fallbackPurposeName);
-  const targetDirectory = join(
-    params.workspaceRoot,
-    buildTargetDirectory(purpose, project, params.now)
-  );
-  const targetPath = join(targetDirectory, basename(params.sourcePath));
+  const coordinate = params.coordinate ?? null;
+  const originalFilename = basename(params.sourcePath);
+  const targetPath =
+    coordinate === null
+      ? join(
+          params.workspaceRoot,
+          buildTargetDirectory(
+            sanitizePathSegment(params.classification.purpose, EXECUTOR_CONFIG.fallbackPurposeName),
+            sanitizePathSegment(params.classification.project, EXECUTOR_CONFIG.fallbackProjectName),
+            params.now
+          ),
+          originalFilename
+        )
+      : join(params.workspaceRoot, buildCoordinatedTarget(coordinate, originalFilename));
 
   return {
     fileId: params.fileId,
     sourcePath: params.sourcePath,
     targetPath,
     action: "move",
-    conflictPolicy: EXECUTOR_CONFIG.defaultConflictPolicy
+    conflictPolicy: EXECUTOR_CONFIG.defaultConflictPolicy,
+    ...(coordinate === null
+      ? { uncoordinated: true }
+      : {
+          coordinate: {
+            areaNumber: coordinate.areaNumber,
+            areaName: coordinate.areaName,
+            projectNumber: coordinate.projectNumber,
+            projectName: coordinate.projectName
+          },
+          uncoordinated: false
+        })
   };
 };
 

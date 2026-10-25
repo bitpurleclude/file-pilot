@@ -1,3 +1,4 @@
+import { registryHandlers } from "./handlers/registry-handlers.js";
 import { ruleHandlers } from "./handlers/rules-handlers.js";
 import { sessionHandlers } from "./handlers/session-handlers.js";
 import { type HandlerContext } from "./handlers/shared.js";
@@ -10,6 +11,7 @@ export const handlers = {
   ...sessionHandlers,
   ...ruleHandlers,
   ...systemHandlers,
-  ...updaterHandlers
+  ...updaterHandlers,
+  ...registryHandlers
 } as const;
 

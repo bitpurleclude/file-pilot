@@ -237,3 +237,159 @@ export const parseResponse = (params: {
     return null;
   }
 };
+
+// ==== 本地决策协议（protocol="local-decision"）====
+
+/**
+ * 本地决策请求形态（decision-models.md §2/§6：Laya/System One 的
+ * 结构化状态 + 类型化问题，决策原语 choice + 校准置信）。
+ */
+export type LocalDecisionMode = "systemone" | "openai-chat";
+
+/** 单个决策问题：id 供应答回填，prompt 为自然语言题面，options 为候选集。 */
+export interface LocalDecisionQuestion {
+  id: string;
+  prompt: string;
+  options: Array<{ id: string; text: string }>;
+}
+
+/** 单题应答：choiceId 为 null 表示模型弃权（Null 原语），confidence 为校准置信。 */
+export interface LocalDecisionAnswer {
+  questionId: string;
+  choiceId: string | null;
+  confidence: number;
+}
+
+/**
+ * 本地决策端点的默认路径：
+ * - systemone → /v1/systemone（Laya 的 System One API 形态）
+ * - openai-chat → /chat/completions（借 OpenAI 兼容对话端点承载决策负载）
+ * 两者均可被调用方显式覆盖（LlmProviderConfig.decisionEndpointPath）。
+ */
+export const defaultLocalDecisionEndpointPath = (mode: LocalDecisionMode): string => {
+  return mode === "systemone" ? "/v1/systemone" : "/chat/completions";
+};
+
+interface LocalDecisionHttpConfig {
+  baseUrl: string;
+  mode: LocalDecisionMode;
+  endpointPath?: string;
+  apiKey?: string;
+  model?: string;
+}
+
+/**
+ * 构建本地决策批量请求。
+ *
+ * ⚠️ 保守假设：本地决策端点（Laya/System One 形态）的公开规范尚不稳定，本结构
+ * 是影子模式阶段①的基线协议——systemone 走结构化 questions 端点；openai-chat
+ * 借 OpenAI 兼容对话端点、以单条 user 消息承载 JSON 化 questions。正式接入实现
+ * 时必须以端点文档为准调整（decision-models.md §2 口径注记）。
+ */
+export const buildLocalDecisionRequest = (params: {
+  questions: LocalDecisionQuestion[];
+} & LocalDecisionHttpConfig): HttpRequestConfig => {
+  const { questions, baseUrl, mode, endpointPath, apiKey, model } = params;
+
+  const endpoint = endpointPath ?? defaultLocalDecisionEndpointPath(mode);
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(apiKey !== undefined && apiKey.length > 0 ? { Authorization: `Bearer ${apiKey}` } : {})
+  };
+
+  const body =
+    mode === "systemone"
+      ? JSON.stringify({
+          questions: questions.map((question) => ({
+            id: question.id,
+            prompt: question.prompt,
+            options: question.options.map((option) => ({ id: option.id, text: option.text }))
+          }))
+        })
+      : JSON.stringify({
+          ...(model === undefined ? {} : { model }),
+          messages: [
+            {
+              role: "user",
+              content: JSON.stringify({
+                task: "choose-one",
+                questions: questions.map((question) => ({
+                  id: question.id,
+                  prompt: question.prompt,
+                  options: question.options.map((option) => ({ id: option.id, text: option.text }))
+                }))
+              })
+            }
+          ]
+        });
+
+  return { url: `${baseUrl}${endpoint}`, method: "POST", headers, body };
+};
+
+interface SystemOneResponseShape {
+  answers?: unknown;
+}
+
+/**
+ * 容错解析本地决策响应，按 questionId 索引应答。
+ *
+ * 两种形态都兼容：systemone 直接返回 {answers:[...]}；openai-chat 从
+ * choices[0].message.content 中提取 JSON。任何字段缺失/类型不符/JSON 损坏
+ * 都只影响对应题目（该题不入索引），绝不 throw——影子模式宁缺毋断。
+ * 返回 map 中不存在的 questionId 由调用方按弃权处理。
+ */
+export const parseLocalDecisionResponse = (params: {
+  mode: LocalDecisionMode;
+  responseBody: string;
+}): Map<string, LocalDecisionAnswer> => {
+  const { mode, responseBody } = params;
+  const answers = new Map<string, LocalDecisionAnswer>();
+
+  try {
+    const json = JSON.parse(responseBody) as SystemOneResponseShape;
+    let rawAnswers: unknown = json.answers;
+
+    if (mode === "openai-chat") {
+      const chatJson = json as unknown as OpenAIResponse;
+      const content = chatJson.choices?.[0]?.message?.content;
+      if (typeof content !== "string") {
+        return answers;
+      }
+      const payload = extractJsonPayload(content) ?? content;
+      const inner = JSON.parse(payload) as SystemOneResponseShape;
+      rawAnswers = inner.answers;
+    }
+
+    if (!Array.isArray(rawAnswers)) {
+      return answers;
+    }
+
+    for (const raw of rawAnswers) {
+      if (typeof raw !== "object" || raw === null) {
+        continue;
+      }
+      const candidate = raw as { questionId?: unknown; choiceId?: unknown; confidence?: unknown };
+      if (typeof candidate.questionId !== "string") {
+        continue;
+      }
+      const confidence = typeof candidate.confidence === "number" && Number.isFinite(candidate.confidence)
+        ? candidate.confidence
+        : 0;
+      if (candidate.choiceId === null || candidate.choiceId === undefined) {
+        answers.set(candidate.questionId, { questionId: candidate.questionId, choiceId: null, confidence });
+        continue;
+      }
+      if (typeof candidate.choiceId === "string") {
+        answers.set(candidate.questionId, {
+          questionId: candidate.questionId,
+          choiceId: candidate.choiceId,
+          confidence
+        });
+      }
+    }
+
+    return answers;
+  } catch {
+    return answers;
+  }
+};

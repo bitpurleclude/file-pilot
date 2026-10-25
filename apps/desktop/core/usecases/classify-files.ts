@@ -1,13 +1,25 @@
 import { CLASSIFICATION_CONFIG } from "../../shared/config/classification.config.js";
+import type { CoordinateOption } from "../../shared/types/registry.js";
 import type { Classification, ConfidenceBand, ContentSummary, FileItem, Purpose } from "../../shared/types/workflow.js";
 
+/**
+ * Classifier input. `coordinates` carries the active registry coordinate list
+ * (governance §4.3): the model must claim a project from this list or emit a
+ * `NEW:<name>` claim. Optional so legacy classifier implementations keep working.
+ */
+export interface ClassifyInput {
+  item: FileItem;
+  summary: ContentSummary;
+  coordinates?: CoordinateOption[];
+}
+
 export interface LlmClassifier {
-  classify(input: { item: FileItem; summary: ContentSummary }): Promise<Classification | null>;
+  classify(input: ClassifyInput): Promise<Classification | null>;
   /**
    * 批量分类可选实现：返回数组与输入按序对齐，
    * null 条目由调用方（如 process-session）逐条走 classifyWithFallback 兜底。
    */
-  classifyMany?(inputs: Array<{ item: FileItem; summary: ContentSummary }>): Promise<Array<Classification | null>>;
+  classifyMany?(inputs: ClassifyInput[]): Promise<Array<Classification | null>>;
 }
 
 /**
@@ -51,9 +63,14 @@ export const buildLocalFallback = (item: FileItem, source: LocalFallbackSource):
 export const classifyWithFallback = async (
   classifier: LlmClassifier,
   item: FileItem,
-  summary: ContentSummary
+  summary: ContentSummary,
+  coordinates?: CoordinateOption[]
 ): Promise<Classification> => {
-  const llmResult = await classifier.classify({ item, summary });
+  const llmResult = await classifier.classify({
+    item,
+    summary,
+    ...(coordinates === undefined ? {} : { coordinates })
+  });
   if (llmResult === null) {
     return buildLocalFallback(item, "classify-fallback");
   }
