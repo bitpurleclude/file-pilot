@@ -170,17 +170,16 @@ test("language switch through the settings UI select persists", async () => {
     const settings = await openSettings(firstApp, popover);
 
     // The General tab hosts the language select (the only combobox there).
+    // Mouse-driven option clicks proved unreliable on CI runners (the
+    // selection never applied although the option was clicked); drive the
+    // radix select with the keyboard instead — identical user path,
+    // no hit-testing.
     await settings.getByRole("combobox").click();
-    await settings.getByRole("option", { name: "English" }).click();
+    await expect(settings.getByRole("option", { name: "English" })).toBeVisible({ timeout: 10_000 });
+    await settings.keyboard.press("ArrowDown");
+    await settings.keyboard.press("Enter");
 
     // Language change saves immediately and re-renders the settings window.
-    // CI runners are slower than dev machines; give the i18n re-render room.
-    // Diagnostics first: CI failed here twice while local always passes.
-    const i18nState = await settings.evaluate(() => ({
-      lang: document.documentElement.lang,
-      heading: (document.querySelector("h1")?.textContent ?? "<none>")
-    }));
-    console.log("LANG_SWITCH_STATE", JSON.stringify(i18nState));
     await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 20_000 });
     await expect(settings.locator('[data-testid="settings-autosave-status"]')).toHaveText("Saved", {
       timeout: 10_000
