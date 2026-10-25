@@ -36,11 +36,11 @@
 
 ## 4. 层级文本分类：两级分解决策的正名
 
-**对应模块**：坐标认领的决策分解（先领域 ≤8 选项 → 后项目 ≤10 选项，`decision-models.md` §4.2）。
+**对应模块**：坐标认领的决策分解（先领域 ≤8 选项 → 后项目 ≤9 选项，`decision-models.md` §4.2）。
 
 - **Zangari et al.《Hierarchical Text Classification and Its Foundations》**（MDPI 2024 综述，89+ 引用）——HTC 方法分三类：**flat（扁平，忽略层级）/ local（每个父节点训练局部分类器）/ global（整层级一次建模）**。我们的两级分解正是经典 **local 方法**——这是被充分研究的成熟路线，不是权宜之计。
 - **HiAGM**（阿里巴巴，"Exploiting Global and Local Hierarchies"）——global 路线的代表（层级结构编码为先验）。作为未来选项记录：若选项数增长到 local 分解也吃力，可评估 global 层级模型。
-- **LSHTC 基准**（Wikipedia 325,056 类）——层级分类规模化极限的参照系；我们的 80 坐标在层级分类谱系里属于玩具规模，方法选择自由度极大。
+- **LSHTC 基准**（Wikipedia 325,056 类）——层级分类规模化极限的参照系；我们的 ~72 坐标在层级分类谱系里属于玩具规模，方法选择自由度极大。
 
 ## 5. 近重复检测：重叠检测的具体算法
 
@@ -68,3 +68,7 @@ Laya 独立评测暴露的问题（原始 ECE 0.466，温度重拟合后 0.081�
 4. Zangari et al. HTC 综述（MDPI 2024）——层级分类方法地图
 5. Manku et al. SimHash（Google Research）——重叠检测算法
 6. Guo et al.《On Calibration of Modern Neural Networks》(ICML 2017)——校准纪律
+
+## 修订记录
+
+- v1.1（2026-10-11）：两级分解与坐标规模口径与登记册对齐（项目 ≤9、坐标 ~72）。
