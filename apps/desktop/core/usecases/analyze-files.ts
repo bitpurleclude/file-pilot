@@ -2,6 +2,7 @@ import { basename, extname } from "node:path";
 import { stat, readFile } from "node:fs/promises";
 
 import { ANALYZER_CONFIG } from "../../shared/config/analyzer.config.js";
+import { AppError } from "../../shared/errors/app-error.js";
 import type { ContentSummary, FileItem } from "../../shared/types/workflow.js";
 
 const textLikeExtensions = new Set(["txt", "md"]);
@@ -56,5 +57,23 @@ export const analyzeFile = async (path: string): Promise<{ item: FileItem; summa
 };
 
 export const analyzeFiles = async (paths: string[]): Promise<Array<{ item: FileItem; summary: ContentSummary }>> => {
-  return Promise.all(paths.map((path) => analyzeFile(path)));
+  const settled = await Promise.allSettled(paths.map((path) => analyzeFile(path)));
+  const results: Array<{ item: FileItem; summary: ContentSummary }> = [];
+  const failedPaths: string[] = [];
+
+  for (const outcome of settled) {
+    if (outcome.status === "fulfilled") {
+      results.push(outcome.value);
+    } else {
+      failedPaths.push(String(outcome.reason instanceof Error ? outcome.reason.message : outcome.reason));
+    }
+  }
+
+  if (failedPaths.length > 0) {
+    throw new AppError("FILE_ANALYZE_FAILED", `无法读取 ${failedPaths.length} 个文件: ${failedPaths.join("; ")}`, "USER", {
+      failed: failedPaths
+    });
+  }
+
+  return results;
 };

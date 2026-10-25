@@ -22,17 +22,17 @@
 - 日志导出后打开目录：弹窗询问
 
 已确认决策（2026-02-12）
-- 工程基线：electron-vite + TypeScript strict + pnpm。
+- 工程基线：vite + esbuild + TypeScript strict + npm。
 - UI 方案：Tailwind + 自建组件。
 - 自动更新：GitHub Releases，beta/stable 双通道。
 - Beta 发布：手动打 tag 触发。
 - 更新检查：启动后 10 秒自动检查 + 手动检查。
 - 更新安装：下载完成后提示“重启安装”。
 - Windows 签名：M1 先不签名。
-- 本地数据库路径：AppData/Roaming/File-Pilot/data.db。
+- 本地数据库路径：userData/data/data.db。
 - 日志保留策略：永久保留，手动清理。
 - LLM 调用容错：超时 20 秒，失败重试 2 次。
-- 凭据存储回退：keytar 不可用时回退到本地加密文件。
+- 凭据存储回退：Electron safeStorage 不可用时回退到机器绑定 AES-GCM 本地加密文件。
 
 已确认决策（2026-02-12，P0 拍板）
 - 置信度阈值：高 >= 0.85；中 0.60~0.84；低 < 0.60。
@@ -155,7 +155,7 @@
 
 技术实现路线
 - 桌面端：Windows 先行；M1 采用 Electron + React，跨平台后续评估
-- 工程与构建：electron-vite + TypeScript strict + pnpm
+- 工程与构建：vite + esbuild + TypeScript strict + npm
 - UI 实现：Tailwind + 自建组件
 - 分层：UI → 任务队列 → 分析器 → 分类器 → 路径规划器 → 执行器
 - 内容抽取：仅上传必要摘要与关键词到 LLM
@@ -176,8 +176,8 @@
 - Windows 签名：M1 不签名（测试期）
 
 存储与可靠性策略（v0.41）
-- 本地数据库：AppData/Roaming/File-Pilot/data.db（SQLite）
-- 凭据存储：优先 keytar；不可用时回退本地加密文件
+- 本地数据库：userData/data/data.db（SQLite）
+- 凭据存储：优先 Electron safeStorage；不可用时回退机器绑定 AES-GCM 本地加密
 - LLM 容错：超时 20 秒，失败重试 2 次
 - 日志保留：永久保留，用户手动清理
 
@@ -251,7 +251,7 @@ API/模块接口（草案）
 - 迁移影响提示默认值：仅高风险
 
 默认配置清单（v0.33）
-- 工程基线：electron-vite + TypeScript strict + pnpm
+- 工程基线：vite + esbuild + TypeScript strict + npm
 - UI 方案：Tailwind + 自建组件
 - 场景模板：默认自动推荐（可手动切换）
 - 批量软限制：100
@@ -279,7 +279,7 @@ API/模块接口（草案）
 - 更新安装策略：下载后提示重启安装
 - Beta 发布触发：手动 tag
 - Windows 签名：M1 不签名
-- 数据库路径：AppData/Roaming/File-Pilot/data.db
+- 数据库路径：userData/data/data.db
 - 数据库主键：UUID
 - 关键索引：sessions(created_at,status)、items(session_id,status)、logs(session_id,timestamp)
 - 任务状态机：pending -> analyzing -> planned -> applying -> done/failed/rolled_back
@@ -291,7 +291,7 @@ API/模块接口（草案）
 - 命名规范化触发：仅在用户确认模板后执行
 - 命名规范化默认范围：仅目录名
 - 重命名模板：仅对目录命名（用户确认后执行）
-- 凭据存储：优先 keytar；不可用时回退本地加密文件
+- 凭据存储：优先 Electron safeStorage；不可用时回退机器绑定 AES-GCM 本地加密
 - 凭据回退加密：AES-GCM + 机器绑定 + 密钥版本号
 - 日志结构：固定 JSON Schema + schema_version
 - 日志导出匿名化：默认开启（可关闭）
@@ -396,7 +396,7 @@ API/模块接口（草案）
 工程与代码规范（v0.42）
 - 架构分层：Renderer(UI) → IPC Client → Preload → Main Handler → UseCase → Domain → Infra Adapter。
 - 依赖方向：UI 仅依赖 application/shared；domain 禁止依赖 infra，必须单向流动。
-- 进程职责：渲染进程禁止直接访问 fs/path/sqlite/keytar，所有系统能力统一经 IPC。
+- 进程职责：渲染进程禁止直接访问 fs/path/sqlite/safeStorage，所有系统能力统一经 IPC。
 - IPC 原则：白名单通道 + zod schema 校验 + 统一错误码返回格式。
 - 业务约束：Main Handler 只做参数校验与调度，业务编排必须在 UseCase 层。
 
@@ -416,7 +416,7 @@ file-pilot/
       components/  # 可复用组件
       styles/      # Tailwind 入口与主题变量
     core/          # UseCase + Domain（纯业务规则）
-    infra/         # SQLite/LLM/keytar/文件系统/日志适配器
+    infra/         # SQLite/LLM/safeStorage/文件系统/日志适配器
     shared/        # 类型、错误码、常量、schema、IPC contract
     tests/         # unit/integration/e2e
   docs/
@@ -469,7 +469,7 @@ ESLint 与格式化门禁（v0.42）
 
 安全与隐私规范（v0.42）
 - 路径安全：先 canonicalize 再做白名单校验，防目录穿越。
-- 凭据安全：优先 keytar，失败回退本地加密文件（AES-GCM + 版本号）。
+- 凭据安全：优先 Electron safeStorage，失败回退机器绑定 AES-GCM 本地加密（enc:v1 前缀）。
 - 日志默认：匿名化开启，导出默认 JSON，保存下载目录，命名规则固定。
 - 数据保留：日志永久保留但需提供体积阈值告警与手动清理入口。
 

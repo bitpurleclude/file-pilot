@@ -1,7 +1,12 @@
-import { app, BrowserWindow, ipcMain } from "electron";
+import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
 import { join } from "node:path";
 
 import { writeLogRecord } from "../../infra/logging/file-logger.js";
+import {
+  createMachineBoundCodec,
+  ENCRYPTED_KEY_PREFIX,
+  type ProviderKeyCodec
+} from "../../infra/security/provider-key-codec.js";
 import { bootstrapSqliteStorage } from "../../infra/storage/sqlite/bootstrap.js";
 import { closeAllSqliteDatabases } from "../../infra/storage/sqlite/db.js";
 import { checkForUpdates } from "../../infra/updater/check-updates.js";
@@ -9,14 +14,50 @@ import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import { handlers, type HandlerContext } from "./handler-registry.js";
 
+const SAFE_STORAGE_PREFIX = `${ENCRYPTED_KEY_PREFIX}ss:`;
+
+/** safeStorage 优先的 key 编解码器；不可用时回退机器绑定 AES-GCM。 */
+const createProviderKeyCodec = (): ProviderKeyCodec => {
+  if (safeStorage.isEncryptionAvailable()) {
+    return {
+      encrypt: (plain) => `${SAFE_STORAGE_PREFIX}${safeStorage.encryptString(plain).toString("base64")}`,
+      decrypt: (stored) => {
+        if (!stored.startsWith(SAFE_STORAGE_PREFIX)) {
+          return stored;
+        }
+
+        try {
+          return safeStorage.decryptString(Buffer.from(stored.slice(SAFE_STORAGE_PREFIX.length), "base64"));
+        } catch {
+          return null;
+        }
+      }
+    };
+  }
+
+  return createMachineBoundCodec();
+};
+
+let mainWindow: BrowserWindow | null = null;
+
 const createMainWindow = async (): Promise<BrowserWindow> => {
   const win = new BrowserWindow({
     width: 1024,
     height: 720,
     webPreferences: {
-      preload: join(__dirname, "preload.cjs")
+      preload: join(__dirname, "preload.cjs"),
+      // 显式声明安全默认值，纵深防御未来的默认值变化。
+      contextIsolation: true,
+      sandbox: true,
+      webSecurity: true
     }
   });
+
+  // 渲染层只加载本地打包资源；禁止任何远程导航与新窗口。
+  win.webContents.on("will-navigate", (event) => {
+    event.preventDefault();
+  });
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 
   const indexPath = join(__dirname, "../renderer/index.html");
   await win.loadFile(indexPath);
@@ -53,7 +94,8 @@ const context: HandlerContext = {
   appDataRoot,
   workspaceRoot,
   appVersion: app.getVersion(),
-  quitApp: () => app.quit()
+  quitApp: () => app.quit(),
+  keyCodec: createProviderKeyCodec()
 };
 
 const safeWriteMainLog = async (params: Parameters<typeof writeLogRecord>[1]): Promise<void> => {
@@ -89,63 +131,87 @@ process.on("unhandledRejection", async (reason) => {
   });
 });
 
-void app.whenReady().then(async () => {
-  delete process.env.ELECTRON_RUN_AS_NODE;
-
-  try {
-    const sqliteBootstrap = await bootstrapSqliteStorage(appDataRoot);
-    await safeWriteMainLog({
-      level: "info",
-      category: "audit",
-      code: "SQLITE_BOOTSTRAPPED",
-      message: "sqlite storage bootstrapped",
-      traceId: crypto.randomUUID(),
-      details: {
-        dbPath: sqliteBootstrap.dbPath,
-        appliedMigrations: sqliteBootstrap.appliedMigrations,
-        importedLegacyRecords: sqliteBootstrap.importedLegacyRecords
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    if (mainWindow !== null) {
+      if (mainWindow.isMinimized()) {
+        mainWindow.restore();
       }
-    });
-  } catch (error) {
-    await safeWriteMainLog({
-      level: "error",
-      category: "error",
-      code: "SQLITE_BOOTSTRAP_FAILED",
-      message: error instanceof Error ? error.message : "unknown error",
-      traceId: crypto.randomUUID()
-    });
-    throw error;
-  }
+      mainWindow.focus();
+    }
+  });
 
-  registerIpc(context);
-  await createMainWindow();
+  void app.whenReady().then(async () => {
+    delete process.env.ELECTRON_RUN_AS_NODE;
 
-  setTimeout(async () => {
-    const update = await checkForUpdates({
-      currentVersion: context.appVersion,
-      channel: UPDATER_CONFIG.channel
-    });
+    try {
+      const sqliteBootstrap = await bootstrapSqliteStorage(appDataRoot);
+      await safeWriteMainLog({
+        level: "info",
+        category: "audit",
+        code: "SQLITE_BOOTSTRAPPED",
+        message: "sqlite storage bootstrapped",
+        traceId: crypto.randomUUID(),
+        details: {
+          dbPath: sqliteBootstrap.dbPath,
+          appliedMigrations: sqliteBootstrap.appliedMigrations,
+          importedLegacyRecords: sqliteBootstrap.importedLegacyRecords
+        }
+      });
+    } catch (error) {
+      await safeWriteMainLog({
+        level: "error",
+        category: "error",
+        code: "SQLITE_BOOTSTRAP_FAILED",
+        message: error instanceof Error ? error.message : "unknown error",
+        traceId: crypto.randomUUID()
+      });
+      throw error;
+    }
 
-    await safeWriteMainLog({
-      level: "info",
-      category: "audit",
-      code: update.available ? "UPDATE_AVAILABLE" : "UPDATE_NOT_AVAILABLE",
-      message: update.available
-        ? `发现新版本 ${update.latestVersion ?? "unknown"}`
-        : "当前已是最新版本",
-      traceId: crypto.randomUUID(),
-      details: {
-        available: update.available,
-        currentVersion: update.currentVersion,
-        latestVersion: update.latestVersion,
-        releaseUrl: update.releaseUrl,
-        notes: update.notes
+    registerIpc(context);
+    mainWindow = await createMainWindow();
+
+    setTimeout(async () => {
+      try {
+        const update = await checkForUpdates({
+          currentVersion: context.appVersion,
+          channel: UPDATER_CONFIG.channel
+        });
+
+        await safeWriteMainLog({
+          level: "info",
+          category: "audit",
+          code: update.available ? "UPDATE_AVAILABLE" : "UPDATE_NOT_AVAILABLE",
+          message: update.available
+            ? `发现新版本 ${update.latestVersion ?? "unknown"}`
+            : "当前已是最新版本",
+          traceId: crypto.randomUUID(),
+          details: {
+            available: update.available,
+            currentVersion: update.currentVersion,
+            latestVersion: update.latestVersion,
+            releaseUrl: update.releaseUrl,
+            notes: update.notes
+          }
+        });
+      } catch (error) {
+        await safeWriteMainLog({
+          level: "error",
+          category: "error",
+          code: "UPDATE_CHECK_FAILED",
+          message: error instanceof Error ? error.message : "unknown error",
+          traceId: crypto.randomUUID()
+        });
       }
-    });
-  }, UPDATER_CONFIG.checkDelayMs);
-});
+    }, UPDATER_CONFIG.checkDelayMs);
+  });
+}
 
 app.on("window-all-closed", () => {
+  mainWindow = null;
   if (process.platform !== "darwin") {
     app.quit();
   }

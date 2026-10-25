@@ -1,5 +1,8 @@
 import { mkdir, writeFile } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
 import { basename, join } from "node:path";
+import { Readable } from "node:stream";
+import { pipeline } from "node:stream/promises";
 
 import { AppError } from "../../shared/errors/app-error.js";
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
@@ -241,6 +244,38 @@ export const checkForUpdates = async (params: {
   }
 };
 
+/** Installer bytes may only come from GitHub's own download hosts. */
+const ALLOWED_INSTALLER_HOSTS = new Set([
+  "github.com",
+  "objects.githubusercontent.com",
+  "release-assets.githubusercontent.com"
+]);
+
+export const isAllowedInstallerUrl = (candidateUrl: string): boolean => {
+  try {
+    const parsed = new URL(candidateUrl);
+    return parsed.protocol === "https:" && ALLOWED_INSTALLER_HOSTS.has(parsed.hostname.toLowerCase());
+  } catch {
+    return false;
+  }
+};
+
+const delayMs = async (ms: number): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+const writeInstallerToFile = async (filePath: string, response: Response): Promise<void> => {
+  if (response.body !== undefined && response.body !== null) {
+    const webStream = response.body as unknown as import("node:stream/web").ReadableStream<Uint8Array>;
+    await pipeline(Readable.fromWeb(webStream), createWriteStream(filePath));
+    return;
+  }
+
+  // Some fetch implementations (and test doubles) expose no stream body.
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  await writeFile(filePath, bytes);
+};
+
 export const downloadLatestInstaller = async (params: {
   channel?: UpdateChannel;
   downloadRoot: string;
@@ -278,29 +313,50 @@ export const downloadLatestInstaller = async (params: {
     });
   }
 
-  let installerResponse: Response;
-  try {
-    installerResponse = await fetchImpl(installerAsset.browser_download_url);
-  } catch (error) {
-    throw updaterNetworkError("Unable to reach installer download URL", error);
+  if (!isAllowedInstallerUrl(installerAsset.browser_download_url)) {
+    throw new AppError("UPDATER_DOWNLOAD_URL_BLOCKED", "Installer asset URL is not on an allowed host", "SYSTEM", {
+      url: installerAsset.browser_download_url
+    });
+  }
+
+  let installerResponse: Response | null = null;
+  let lastDownloadError: unknown = null;
+  for (let attempt = 0; attempt <= UPDATER_CONFIG.downloadRetryCount; attempt += 1) {
+    try {
+      const candidate = await fetchImpl(installerAsset.browser_download_url);
+      if (candidate.ok || attempt === UPDATER_CONFIG.downloadRetryCount) {
+        installerResponse = candidate;
+        break;
+      }
+
+      lastDownloadError = new AppError(
+        "UPDATER_DOWNLOAD_FAILED",
+        `Installer download failed with HTTP ${candidate.status}`,
+        "SYSTEM"
+      );
+    } catch (error) {
+      lastDownloadError = error;
+    }
+
+    if (attempt < UPDATER_CONFIG.downloadRetryCount) {
+      await delayMs(500 * (attempt + 1));
+    }
+  }
+
+  if (installerResponse === null) {
+    if (lastDownloadError instanceof AppError) {
+      throw lastDownloadError;
+    }
+    throw updaterNetworkError("Unable to reach installer download URL", lastDownloadError);
   }
 
   if (!installerResponse.ok) {
     throw new AppError("UPDATER_DOWNLOAD_FAILED", `Installer download failed with HTTP ${installerResponse.status}`, "SYSTEM");
   }
 
-  let bytes: Uint8Array;
-  try {
-    bytes = new Uint8Array(await installerResponse.arrayBuffer());
-  } catch (error) {
-    throw new AppError("UPDATER_DOWNLOAD_FAILED", "Failed to read installer bytes", "SYSTEM", {
-      reason: error instanceof Error ? error.message : "unknown"
-    });
-  }
-
   await mkdir(params.downloadRoot, { recursive: true });
   const filePath = join(params.downloadRoot, basename(installerAsset.name));
-  await writeFile(filePath, bytes);
+  await writeInstallerToFile(filePath, installerResponse);
 
   return {
     version: normalizeVersion(latest.tag_name),
@@ -310,6 +366,7 @@ export const downloadLatestInstaller = async (params: {
 
 export const __test__ = {
   compareVersions,
+  isAllowedInstallerUrl,
   isGithubRelease,
   parseReleasesPayload,
   normalizeVersion,

@@ -160,6 +160,7 @@
       "baseUrl": "API 地址",
       "apiKey": "API 密钥",
       "apiKeyPlaceholder": "输入 API 密钥",
+      "apiKeyStored": "已安全保存密钥——输入新值可更换",
       "protocol": "协议",
       "customProtocol": "自定义协议",
       "authType": "认证方式",

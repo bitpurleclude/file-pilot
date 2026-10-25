@@ -9,6 +9,19 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface LlmCallFailure {
+  errorCode: string;
+  message: string;
+  /** HTTP status when the provider answered with a non-2xx response. */
+  httpStatus?: number;
+}
+
+export type LlmCallResult =
+  | { ok: true; content: string; model: string; source: "llm-primary" | "llm-secondary" }
+  | { ok: false; failure: LlmCallFailure };
+
+const NON_RETRYABLE_HTTP_STATUSES = new Set([400, 401, 403, 404, 405, 413, 422]);
+
 const delay = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
@@ -26,11 +39,13 @@ const pickActiveProvider = (settings: AppSettings): LlmProviderConfig | null => 
   return fallback ?? null;
 };
 
+type AttemptResult = { content: string } | { failure: LlmCallFailure; retryable: boolean };
+
 const callChatApi = async (params: {
   provider: LlmProviderConfig;
   messages: ChatMessage[];
   model: string;
-}): Promise<string | null> => {
+}): Promise<AttemptResult> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LLM_CONFIG.timeoutMs);
 
@@ -48,16 +63,40 @@ const callChatApi = async (params: {
     });
 
     if (!response.ok) {
-      return null;
+      return {
+        failure: {
+          errorCode: `LLM_HTTP_${response.status}`,
+          message: `LLM provider returned HTTP ${response.status}`,
+          ...(Number.isFinite(response.status) ? { httpStatus: response.status } : {})
+        },
+        retryable: !NON_RETRYABLE_HTTP_STATUSES.has(response.status)
+      };
     }
 
     const responseBody = await response.text();
-    return parseResponse({
+    const content = parseResponse({
       provider: params.provider,
       responseBody
     });
-  } catch {
-    return null;
+    if (content === null) {
+      return {
+        failure: {
+          errorCode: "LLM_UNPARSEABLE_RESPONSE",
+          message: "LLM response body did not contain chat content"
+        },
+        retryable: true
+      };
+    }
+
+    return { content };
+  } catch (error) {
+    return {
+      failure: {
+        errorCode: "LLM_NETWORK_ERROR",
+        message: error instanceof Error ? error.message : "network error"
+      },
+      retryable: true
+    };
   } finally {
     clearTimeout(timer);
   }
@@ -67,11 +106,17 @@ const callWithRetry = async (params: {
   provider: LlmProviderConfig;
   messages: ChatMessage[];
   model: string;
-}): Promise<string | null> => {
+}): Promise<{ content: string } | { failure: LlmCallFailure; stopModelFallback: boolean }> => {
   for (let attempt = 0; attempt <= LLM_CONFIG.retryCount; attempt += 1) {
-    const content = await callChatApi(params);
-    if (content !== null) {
-      return content;
+    const outcome = await callChatApi(params);
+    if ("content" in outcome) {
+      return { content: outcome.content };
+    }
+
+    if (!outcome.retryable) {
+      // 401/403/404 and friends will fail on the secondary model too —
+      // stop early instead of burning the remaining attempts.
+      return { failure: outcome.failure, stopModelFallback: true };
     }
 
     if (attempt < LLM_CONFIG.retryCount) {
@@ -79,16 +124,28 @@ const callWithRetry = async (params: {
     }
   }
 
-  return null;
+  return {
+    failure: {
+      errorCode: "LLM_RETRIES_EXHAUSTED",
+      message: `LLM call failed after ${LLM_CONFIG.retryCount + 1} attempts`
+    },
+    stopModelFallback: false
+  };
 };
 
 export const callLlmWithFallback = async (params: {
   settings: AppSettings;
   messages: ChatMessage[];
-}): Promise<{ content: string; model: string; source: "llm-primary" | "llm-secondary" } | null> => {
+}): Promise<LlmCallResult> => {
   const provider = pickActiveProvider(params.settings);
   if (provider === null) {
-    return null;
+    return {
+      ok: false,
+      failure: {
+        errorCode: "LLM_NO_ENABLED_PROVIDER",
+        message: "no enabled LLM provider is configured"
+      }
+    };
   }
 
   const resolvedModels = resolveProviderModels(provider);
@@ -98,8 +155,12 @@ export const callLlmWithFallback = async (params: {
     messages: params.messages
   });
 
-  if (primary !== null) {
-    return { content: primary, model: resolvedModels.primaryModel, source: "llm-primary" };
+  if ("content" in primary) {
+    return { ok: true, content: primary.content, model: resolvedModels.primaryModel, source: "llm-primary" };
+  }
+
+  if (primary.stopModelFallback) {
+    return { ok: false, failure: primary.failure };
   }
 
   const secondary = await callWithRetry({
@@ -108,9 +169,9 @@ export const callLlmWithFallback = async (params: {
     messages: params.messages
   });
 
-  if (secondary !== null) {
-    return { content: secondary, model: resolvedModels.secondaryModel, source: "llm-secondary" };
+  if ("content" in secondary) {
+    return { ok: true, content: secondary.content, model: resolvedModels.secondaryModel, source: "llm-secondary" };
   }
 
-  return null;
+  return { ok: false, failure: secondary.failure };
 };

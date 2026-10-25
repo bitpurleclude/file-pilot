@@ -17,10 +17,18 @@ export type ProviderAuthType =
 
 /**
  * Provider 协议类型
+ *
+ * 所有支持的供应商端点均走 OpenAI 兼容协议。历史上的 "custom" 适配分支
+ * 从未实现（发 OpenAI 请求体却永远无法解析响应），已移除；
+ * 旧存档中的 "custom" 值由 normalizeProviderConfig 折算回 "openai"。
  */
-export type ProviderProtocol =
-  | "openai"      // 完全兼容 OpenAI API
-  | "custom";     // 需要自定义适配
+export type ProviderProtocol = "openai";
+
+/**
+ * getSettings 返回给渲染层的已存储 key 占位符。
+ * 渲染层原样回传表示"保留已存储的 key"；明文 key 不再跨越 IPC 下行。
+ */
+export const MASKED_API_KEY = "__STORED__";
 
 export type ProviderModelControlMode = "intensity" | "manual";
 

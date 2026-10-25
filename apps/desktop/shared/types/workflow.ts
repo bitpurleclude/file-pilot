@@ -73,6 +73,8 @@ export interface ExecutionResult {
   executed: boolean;
   rollbackable: boolean;
   reason?: string;
+  /** Actual target written when conflict renaming moved the file elsewhere. */
+  resolvedTargetPath?: string;
 }
 
 export interface Session {

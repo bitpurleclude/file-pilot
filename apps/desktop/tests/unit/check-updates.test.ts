@@ -120,7 +120,8 @@ describe("check-updates", () => {
 
     const fakeFetch: typeof fetch = (async (input) => {
       const url = String(input);
-      if (url.includes("/releases")) {
+      // Asset URLs also contain "/releases/download", so match the API path specifically.
+      if (url.startsWith("https://api.github.com/")) {
         return {
           ok: true,
           json: async () => [
@@ -130,7 +131,7 @@ describe("check-updates", () => {
               draft: false,
               html_url: "https://example.com/release",
               body: "notes",
-              assets: [{ name: "File Pilot Setup 0.2.0.exe", browser_download_url: "https://example.com/installer.exe" }]
+              assets: [{ name: "File Pilot Setup 0.2.0.exe", browser_download_url: "https://github.com/bitpurleclude/file-pilot/releases/download/v0.2.0/File.Pilot.Setup.0.2.0.exe" }]
             }
           ]
         } as Response;
@@ -152,6 +153,41 @@ describe("check-updates", () => {
       const content = await readFile(result.installerPath, "utf-8");
       expect(result.version).toBe("0.2.0");
       expect(content).toBe("installer-bytes");
+    } finally {
+      await rm(downloadRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("refuses installer assets hosted outside GitHub download hosts", async () => {
+    const downloadRoot = await mkdtemp(join(tmpdir(), "file-pilot-update-blocked-"));
+
+    const fakeFetch: typeof fetch = (async (input) => {
+      const url = String(input);
+      if (url.includes("/releases")) {
+        return {
+          ok: true,
+          json: async () => [
+            {
+              tag_name: "v0.9.0",
+              prerelease: false,
+              draft: false,
+              html_url: "https://example.com/release",
+              body: "notes",
+              assets: [{ name: "evil.exe", browser_download_url: "http://evil.example.com/evil.exe" }]
+            }
+          ]
+        } as Response;
+      }
+
+      throw new Error("download must not be attempted for blocked hosts");
+    }) as typeof fetch;
+
+    try {
+      await expect(downloadLatestInstaller({
+        channel: "stable",
+        downloadRoot,
+        fetchImpl: fakeFetch
+      })).rejects.toMatchObject({ code: "UPDATER_DOWNLOAD_URL_BLOCKED" });
     } finally {
       await rm(downloadRoot, { recursive: true, force: true });
     }

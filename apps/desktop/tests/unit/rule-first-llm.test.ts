@@ -125,4 +125,73 @@ describe("rule-first-llm classifier", () => {
     expect(result?.decisionSource).toBe("local-fallback");
     expect(result?.reasons).toContain("llm-fallback-rule:media");
   });
+
+  it("parses JSON wrapped in markdown fences", async () => {
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: "```json\n" + JSON.stringify({
+                  purpose: "Documents",
+                  project: "围栏项目",
+                  confidence: 0.9,
+                  reasons: []
+                }) + "\n```"
+              }
+            }
+          ]
+        })
+      } as Response;
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify(defaultInput);
+
+    expect(result?.decisionSource).toBe("llm-primary");
+    expect(result?.project).toBe("围栏项目");
+  });
+
+  it("rejects path-like project values from the LLM and falls back locally", async () => {
+    const fetchMock = vi.fn(async () => {
+      return {
+        ok: true,
+        text: async () => JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  purpose: "Documents",
+                  project: "..\\..\\evil",
+                  confidence: 0.9,
+                  reasons: []
+                })
+              }
+            }
+          ]
+        })
+      } as Response;
+    });
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify(defaultInput);
+
+    expect(result?.decisionSource).toBe("local-fallback");
+    expect(result?.project).toBe("默认项目");
+  });
+
+  it("records the typed failure reason when the LLM call fails", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: false, status: 401 } as Response));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    const classifier = new RuleFirstLlmClassifier(createSettings());
+    const result = await classifier.classify(defaultInput);
+
+    expect(result?.decisionSource).toBe("local-fallback");
+    expect(result?.reasons).toContain("llm-failed:LLM_HTTP_401");
+  });
 });

@@ -14,6 +14,12 @@ const purposeSchema = z.enum([
   "Research"
 ]);
 
+// Project/answer values are joined into placement target paths, so they must
+// never carry path separators, Windows-illegal characters, or `.`/`..`.
+export const projectSegmentSchema = z.string().min(1).max(64)
+  .regex(/^[^\\/:*?"<>|]+$/, "must not contain path separators or Windows-illegal characters")
+  .refine((value) => value !== "." && value !== "..", "must not be a relative path segment");
+
 export const analyzeRequestSchema = z.object({
   sessionId: z.string().uuid(),
   filePaths: z.array(z.string().min(1)).min(1)
@@ -55,9 +61,9 @@ export const downloadUpdateRequestSchema = z.object({
   channel: z.enum(["beta", "stable"]).optional()
 });
 
-export const installUpdateRequestSchema = z.object({
-  installerPath: z.string().min(1)
-});
+// The installer path is tracked main-side after downloadUpdate; the renderer
+// must not be able to name an arbitrary executable to spawn.
+export const installUpdateRequestSchema = z.object({}).default({});
 
 export const getSettingsRequestSchema = z.object({}).default({});
 
@@ -91,10 +97,10 @@ const providerConfigSchema = z.object({
   ]).optional(),
   name: z.string().min(1),
   isPreset: z.boolean(),
-  baseUrl: z.string().min(1),
+  baseUrl: z.string().url(),
   authType: z.enum(["bearer", "api-key", "none"]),
   apiKey: z.string().optional(),
-  protocol: z.enum(["openai", "custom"]),
+  protocol: z.enum(["openai"]),
   primaryModel: z.string().min(1),
   secondaryModel: z.string().min(1),
   modelControlMode: z.enum(["intensity", "manual"]),
@@ -119,6 +125,8 @@ const llmProvidersSchema = z.object({
   }
 });
 
+export type ProviderConfigPayload = z.infer<typeof providerConfigSchema>;
+
 export const saveSettingsRequestSchema = z.object({
   language: z.enum(["zh-CN", "en"]).optional(),
   readOnlyMode: z.boolean().optional(),
@@ -136,7 +144,7 @@ export const saveSettingsRequestSchema = z.object({
 
 export const submitFollowupRequestSchema = z.object({
   sessionId: z.string().uuid(),
-  answer: z.string().min(1),
+  answer: projectSegmentSchema,
   applyToAll: z.boolean().default(true)
 });
 
@@ -144,7 +152,7 @@ export const saveCorrectionsRequestSchema = z.object({
   sessionId: z.string().uuid(),
   fileId: z.string().min(1),
   purpose: purposeSchema,
-  project: z.string().min(1),
+  project: projectSegmentSchema,
   saveAsRule: z.boolean().default(false),
   applyToAll: z.boolean().default(false)
 });
@@ -158,7 +166,7 @@ export const updateRuleRequestSchema = z
     ruleId: z.string().min(1),
     enabled: z.boolean().optional(),
     priority: z.number().int().min(0).optional(),
-    project: z.string().min(1).optional(),
+    project: projectSegmentSchema.optional(),
     purpose: purposeSchema.optional()
   })
   .superRefine((value, ctx) => {
@@ -200,7 +208,7 @@ export const testProviderConnectionRequestSchema = z.object({
   apiKey: z.string().optional(),
   model: z.string().min(1),
   authType: z.enum(["bearer", "api-key", "none"]),
-  protocol: z.enum(["openai", "custom"]),
+  protocol: z.enum(["openai"]),
   endpoint: z.string().optional(),
   customHeaders: z.record(z.string()).optional()
 });

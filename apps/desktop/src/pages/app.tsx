@@ -373,7 +373,7 @@ export const App = (): JSX.Element => {
     setDownloadedInstallerPath(null);
 
     const updateMessage = resolveUpdateCheckMessage(result.data, updateChannel);
-    setMessage(t(updateMessage.key, updateMessage.params));
+    setMessage(t(updateMessage.key, updateMessage.params ?? {}));
   };
 
   const onDownloadUpdate = async (): Promise<void> => {
@@ -414,7 +414,7 @@ export const App = (): JSX.Element => {
 
     setUpdateFlowState("installing");
     setMessage(t("app.installingUpdate"));
-    const result = await window.filePilotApi.installUpdate({ installerPath: downloadedInstallerPath });
+    const result = await window.filePilotApi.installUpdate();
     setUpdateFlowState("idle");
     if (!result.ok) {
       setMessage(t("app.installUpdateFailed", { message: `${result.error.code}: ${result.error.message}` }));

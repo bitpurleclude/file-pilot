@@ -8,7 +8,11 @@ import {
   normalizeProviderConfig,
   resolveProviderModels
 } from "../../../../shared/config/llm-providers.js";
-import type { LlmProviderConfig, ProviderIntensityLevel } from "../../../../shared/types/llm-provider.js";
+import {
+  MASKED_API_KEY,
+  type LlmProviderConfig,
+  type ProviderIntensityLevel
+} from "../../../../shared/types/llm-provider.js";
 import type { AppSettings } from "../../../../shared/types/settings.js";
 import { Button } from "../../../components/ui/button.js";
 import {
@@ -319,10 +323,20 @@ export const LlmPanel = ({ settings, onChange }: LlmPanelProps): JSX.Element => 
             <Input
               id="llm-api-key"
               type="password"
-              value={activeProvider.apiKey ?? ""}
-              placeholder={t("settings.llm.apiKeyPlaceholder")}
+              value={activeProvider.apiKey === MASKED_API_KEY ? "" : (activeProvider.apiKey ?? "")}
+              placeholder={activeProvider.apiKey === MASKED_API_KEY
+                ? t("settings.llm.apiKeyStored")
+                : t("settings.llm.apiKeyPlaceholder")}
               onChange={(event) => {
-                updateActiveProvider((provider) => ({ ...provider, apiKey: event.target.value }), "debounced");
+                const value = event.target.value;
+                updateActiveProvider((provider) => {
+                  if (value.length > 0) {
+                    return { ...provider, apiKey: value };
+                  }
+                  // 清空输入 = 保留已存储的 key（哨兵原样回传）；
+                  // 原本没有 key 的 provider 则清除占位空串。
+                  return provider.apiKey === MASKED_API_KEY ? provider : { ...provider, apiKey: "" };
+                }, "debounced");
               }}
             />
           </div>
@@ -344,7 +358,6 @@ export const LlmPanel = ({ settings, onChange }: LlmPanelProps): JSX.Element => 
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="openai">OpenAI</SelectItem>
-                  <SelectItem value="custom">{t("settings.llm.customProtocol")}</SelectItem>
                 </SelectContent>
               </Select>
             </div>

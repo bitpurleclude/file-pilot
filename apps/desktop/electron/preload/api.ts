@@ -40,7 +40,8 @@ export interface FilePilotApi {
   reportClientError(payload: { code: string; message: string; details?: Record<string, unknown> }): Promise<IpcResult<unknown>>;
   checkUpdates(payload?: { channel?: "beta" | "stable" }): Promise<IpcResult<UpdateInfo>>;
   downloadUpdate(payload?: { channel?: "beta" | "stable" }): Promise<IpcResult<DownloadedUpdateInfo>>;
-  installUpdate(payload: { installerPath: string }): Promise<IpcResult<{ started: boolean }>>;
+  // 安装包路径由主进程在 downloadUpdate 后跟踪，渲染层不再回传可执行路径。
+  installUpdate(): Promise<IpcResult<{ started: boolean }>>;
   getSettings(): Promise<IpcResult<AppSettings>>;
   getLogStatus(): Promise<IpcResult<{ sizeBytes: number; warn: boolean }>>;
   clearLogs(): Promise<IpcResult<{ cleared: boolean }>>;
@@ -67,7 +68,7 @@ export interface FilePilotApi {
     apiKey?: string;
     model: string;
     authType: "bearer" | "api-key" | "none";
-    protocol: "openai" | "custom";
+    protocol: "openai";
     endpoint?: string;
     customHeaders?: Record<string, string>;
   }): Promise<IpcResult<{ success: boolean }>>;

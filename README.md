@@ -1,7 +1,7 @@
 # File-Pilot
 
 File-Pilot 是一个基于 Electron + React + TypeScript 的桌面文件整理工具。  
-当前代码实现已覆盖 M2/M3 关键能力：
+当前代码实现已覆盖 M2 关键能力与规则学习子集（PLAN 定义的完整 M3 范围——去重/搜索/命名规范/回迁提醒——尚未实现）：
 
 - 规则优先 + LLM 主备 + 本地兜底的分类管线
 - 低置信度追问（follow-up）

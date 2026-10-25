@@ -242,6 +242,9 @@ export const normalizeProviderConfig = (provider: LlmProviderConfig): LlmProvide
 
   return {
     ...provider,
+    // Legacy "custom" protocol values are folded back to "openai": every
+    // supported endpoint speaks the OpenAI-compatible wire format.
+    protocol: "openai",
     modelControlMode,
     intensity,
     intensityProfiles

@@ -6,8 +6,12 @@ import {
   submitFollowupRequestSchema
 } from "../../../shared/ipc/contracts.js";
 import { RuleFirstLlmClassifier } from "../../../infra/llm/rule-first-llm.js";
-import { loadSettings } from "../../../infra/storage/settings-repository.js";
-import { applySession, processSession, rollbackSession } from "../../../core/usecases/process-session.js";
+import {
+  applySession,
+  hasExecutionFailures,
+  processSession,
+  rollbackSession
+} from "../../../core/usecases/process-session.js";
 import { buildPlacementPlan } from "../../../core/usecases/plan-placement.js";
 import { createSession, updateSessionStatus, withExecutions } from "../../../core/usecases/session-manager.js";
 import { openSqliteDatabase } from "../../../infra/storage/sqlite/db.js";
@@ -32,9 +36,9 @@ import {
   type HandlerContext,
   type UnknownPayload,
   buildRuleFromItem,
+  loadSettingsWithContext,
   markRuleHits,
   safeWriteLog,
-  settingsRootPath,
   sqlitePath,
   toDecisionRecords,
   traceId
@@ -65,7 +69,7 @@ export const sessionHandlers = {
 
       const req = analyzeRequestSchema.parse(payload);
       const db = openSqliteDatabase(sqlitePath(context));
-      const settings = await loadSettings(settingsRootPath(context));
+      const settings = await loadSettingsWithContext(context);
       const rules = listRulesSqlite(db, { includeDisabled: false });
 
       const session = updateSessionStatus(createSession({ itemIds: [], sessionId: req.sessionId }), "analyzing");
@@ -157,17 +161,24 @@ export const sessionHandlers = {
       }
 
       const results = await applySession(session.executions.map((item) => item.plan), req.dryRun, req.action);
-      const updated = withExecutions(updateSessionStatus(session, req.dryRun ? "planned" : "done"), results);
+      const executionFailed = !req.dryRun && hasExecutionFailures(results);
+      const updated = withExecutions(
+        updateSessionStatus(session, req.dryRun ? "planned" : (executionFailed ? "failed" : "done")),
+        results
+      );
       upsertSessionSqlite(db, updated);
 
       await safeWriteLog(context, {
-        level: "info",
+        level: executionFailed ? "error" : "info",
         category: "execution",
-        code: "SESSION_APPLY_DONE",
-        message: "apply completed",
+        code: executionFailed ? "SESSION_APPLY_PARTIAL_FAILURE" : "SESSION_APPLY_DONE",
+        message: executionFailed ? "apply completed with per-item failures" : "apply completed",
         traceId: t,
         sessionId: req.sessionId,
-        details: { executedCount: results.filter((r) => r.executed).length }
+        details: {
+          executedCount: results.filter((r) => r.executed).length,
+          failedCount: results.filter((r) => !r.executed && (r.reason?.startsWith("execute-failed") ?? false)).length
+        }
       });
 
       return { ok: true, data: updated };
@@ -243,7 +254,7 @@ export const sessionHandlers = {
       });
 
       const db = openSqliteDatabase(sqlitePath(context));
-      const settings = await loadSettings(settingsRootPath(context));
+      const settings = await loadSettingsWithContext(context);
       const session = getSessionByIdSqlite(db, req.sessionId);
       if (session === undefined) {
         throw new Error("session not found");
@@ -359,7 +370,7 @@ export const sessionHandlers = {
       });
 
       const db = openSqliteDatabase(sqlitePath(context));
-      const settings = await loadSettings(settingsRootPath(context));
+      const settings = await loadSettingsWithContext(context);
       const session = getSessionByIdSqlite(db, req.sessionId);
       if (session === undefined) {
         throw new Error("session not found");

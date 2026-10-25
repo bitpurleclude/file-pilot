@@ -3,16 +3,13 @@ import type { ChatMessage } from "./llm-gateway.js";
 
 /**
  * Provider 适配器
- * 
+ *
  * 职责：
- * 1. 将统一的 ChatMessage[] 转换为各供应商的请求格式
- * 2. 将各供应商的响应格式转换为统一的 string
+ * 1. 将统一的 ChatMessage[] 转换为供应商请求格式（当前全部为 OpenAI 兼容）
+ * 2. 将供应商响应转换为统一的 string
  * 3. 处理认证头和自定义请求头
  */
 
-/**
- * HTTP 请求配置
- */
 export interface HttpRequestConfig {
   url: string;
   method: "POST";
@@ -20,40 +17,42 @@ export interface HttpRequestConfig {
   body: string;
 }
 
-/**
- * 构建 HTTP 请求配置
- */
+/** Join baseUrl + endpoint tolerating trailing/leading slash variants. */
+export const buildEndpointUrl = (baseUrl: string, endpoint: string): string => {
+  const trimmedBase = baseUrl.replace(/\/+$/, "");
+  const normalizedEndpoint = endpoint.startsWith("/") ? endpoint : `/${endpoint}`;
+  return `${trimmedBase}${normalizedEndpoint}`;
+};
+
 export const buildHttpRequest = (params: {
   provider: LlmProviderConfig;
   messages: ChatMessage[];
   model: string;
 }): HttpRequestConfig => {
   const { provider, messages, model } = params;
-  
-  // 构建 URL
+
   const endpoint = provider.endpoint ?? "/chat/completions";
-  const url = `${provider.baseUrl}${endpoint}`;
-  
-  // 构建请求头
+  const url = buildEndpointUrl(provider.baseUrl, endpoint);
+
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
     ...provider.customHeaders
   };
-  
-  // 添加认证头
+
+  // Auth headers are assigned after customHeaders so a stray header entry
+  // cannot silently override Authorization.
   if (provider.authType === "bearer" && provider.apiKey !== undefined && provider.apiKey.length > 0) {
     headers["Authorization"] = `Bearer ${provider.apiKey}`;
   } else if (provider.authType === "api-key" && provider.apiKey !== undefined && provider.apiKey.length > 0) {
     headers["X-API-Key"] = provider.apiKey;
   }
-  
-  // 构建请求体（OpenAI 格式）
+
   const body = JSON.stringify({
     model,
     messages,
     temperature: 0.2
   });
-  
+
   return {
     url,
     method: "POST",
@@ -62,9 +61,6 @@ export const buildHttpRequest = (params: {
   };
 };
 
-/**
- * OpenAI 响应格式
- */
 interface OpenAIResponse {
   choices?: Array<{
     message?: {
@@ -73,24 +69,14 @@ interface OpenAIResponse {
   }>;
 }
 
-/**
- * 解析响应内容
- */
 export const parseResponse = (params: {
   provider: LlmProviderConfig;
   responseBody: string;
 }): string | null => {
-  const { provider, responseBody } = params;
-  
   try {
-    // 当前所有供应商都使用 OpenAI 兼容格式
-    if (provider.protocol === "openai") {
-      const json = JSON.parse(responseBody) as OpenAIResponse;
-      return json.choices?.[0]?.message?.content ?? null;
-    }
-    
-    // 未来可扩展其他协议
-    return null;
+    // 所有支持的供应商端点均使用 OpenAI 兼容格式。
+    const json = JSON.parse(params.responseBody) as OpenAIResponse;
+    return json.choices?.[0]?.message?.content ?? null;
   } catch {
     return null;
   }

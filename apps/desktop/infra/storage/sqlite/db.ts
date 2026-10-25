@@ -9,6 +9,7 @@ const applyPragmas = (db: Database.Database): void => {
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   db.pragma("synchronous = NORMAL");
+  db.pragma("busy_timeout = 5000");
 };
 
 export const openSqliteDatabase = (dbPath: string): Database.Database => {
@@ -24,6 +25,17 @@ export const openSqliteDatabase = (dbPath: string): Database.Database => {
   return db;
 };
 
+/** Close one cached connection (mainly so tests can release temp-dir files). */
+export const closeSqliteDatabase = (dbPath: string): void => {
+  const db = databaseCache.get(dbPath);
+  if (db === undefined) {
+    return;
+  }
+
+  db.close();
+  databaseCache.delete(dbPath);
+};
+
 export const closeAllSqliteDatabases = (): void => {
   for (const db of databaseCache.values()) {
     db.close();
@@ -31,4 +43,3 @@ export const closeAllSqliteDatabases = (): void => {
 
   databaseCache.clear();
 };
-

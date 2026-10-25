@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { updaterHandlers } from "../../electron/main/handlers/updater-handlers.js";
 import type { HandlerContext } from "../../electron/main/handlers/shared.js";
+import { closeAllSqliteDatabases } from "../../infra/storage/sqlite/db.js";
 import { AppError } from "../../shared/errors/app-error.js";
 import { checkForUpdates, downloadLatestInstaller } from "../../infra/updater/check-updates.js";
 import { launchInstaller } from "../../infra/updater/install-update.js";
@@ -34,6 +35,9 @@ const createContext = (root: string): HandlerContext => ({
 
 afterEach(async () => {
   vi.clearAllMocks();
+  // The sqlite connection cache keeps temp-dir database files open on Windows,
+  // which made rm() fail with EBUSY. Close everything before cleanup.
+  closeAllSqliteDatabases();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 
@@ -92,15 +96,73 @@ describe("updater-handlers", () => {
     expect(result.error.message).toContain("Installer asset missing");
   });
 
-  it("returns structured IPC error for installUpdate failure", async () => {
+  it("refuses installUpdate before any installer was downloaded", async () => {
     const root = await mkdtemp(join(tmpdir(), "file-pilot-updater-handler-"));
     tempDirs.push(root);
 
+    const result = await updaterHandlers.installUpdate(createContext(root), {});
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error.code).toBe("UPDATER_NO_DOWNLOADED_INSTALLER");
+    expect(mockLaunchInstaller).not.toHaveBeenCalled();
+  });
+
+  it("installs the main-side tracked installer and quits the app", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-updater-handler-"));
+    tempDirs.push(root);
+    const trackedPath = join(root, "updates", "File.Pilot.Setup.0.2.0.exe");
+
+    mockDownloadLatestInstaller.mockResolvedValue({
+      version: "0.2.0",
+      installerPath: trackedPath
+    });
+    mockLaunchInstaller.mockResolvedValue(undefined);
+
+    const downloadResult = await updaterHandlers.downloadUpdate(createContext(root), { channel: "beta" });
+    expect(downloadResult.ok).toBe(true);
+
+    const result = await updaterHandlers.installUpdate(createContext(root), {});
+    expect(result.ok).toBe(true);
+    expect(mockLaunchInstaller).toHaveBeenCalledTimes(1);
+    expect(mockLaunchInstaller).toHaveBeenCalledWith(trackedPath);
+  });
+
+  it("rejects a downloaded installer that escaped the updates directory", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-updater-handler-"));
+    tempDirs.push(root);
+
+    mockDownloadLatestInstaller.mockResolvedValue({
+      version: "0.2.0",
+      installerPath: join(root, "elsewhere", "evil.exe")
+    });
+
+    const result = await updaterHandlers.downloadUpdate(createContext(root), { channel: "beta" });
+    expect(result.ok).toBe(false);
+    if (result.ok) {
+      return;
+    }
+
+    expect(result.error.code).toBe("UPDATER_DOWNLOAD_PATH_INVALID");
+  });
+
+  it("returns structured IPC error when installer launch fails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-updater-handler-"));
+    tempDirs.push(root);
+    const trackedPath = join(root, "updates", "File.Pilot.Setup.0.2.0.exe");
+
+    mockDownloadLatestInstaller.mockResolvedValue({
+      version: "0.2.0",
+      installerPath: trackedPath
+    });
     mockLaunchInstaller.mockRejectedValue(new AppError("UPDATER_INSTALL_BLOCKED", "Installer launch blocked", "SYSTEM"));
 
-    const result = await updaterHandlers.installUpdate(createContext(root), {
-      installerPath: "C:/updates/File Pilot Setup.exe"
-    });
+    const downloadResult = await updaterHandlers.downloadUpdate(createContext(root), { channel: "beta" });
+    expect(downloadResult.ok).toBe(true);
+
+    const result = await updaterHandlers.installUpdate(createContext(root), {});
     expect(result.ok).toBe(false);
     if (result.ok) {
       return;

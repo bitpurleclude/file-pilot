@@ -160,6 +160,7 @@
       "baseUrl": "API Base URL",
       "apiKey": "API Key",
       "apiKeyPlaceholder": "Enter API Key",
+      "apiKeyStored": "A key is stored securely — type to replace",
       "protocol": "Protocol",
       "customProtocol": "Custom Protocol",
       "authType": "Auth Type",

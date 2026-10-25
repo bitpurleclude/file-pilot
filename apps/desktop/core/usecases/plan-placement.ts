@@ -11,13 +11,33 @@ const toTimeBucket = (date: Date): string => {
   return `${year}/${month}`;
 };
 
+const INVALID_SEGMENT_PATTERN = /[\\/:*?"<>|\u0000-\u001f]/g;
+
+/**
+ * Defense-in-depth: project names are joined into target paths. IPC contracts
+ * already reject path-like values, but LLM output and legacy stored rules can
+ * still carry them, so every segment is sanitized before join.
+ */
+export const sanitizeProjectSegment = (value: string): string => {
+  const cleaned = value
+    .replace(INVALID_SEGMENT_PATTERN, "_")
+    .replace(/\.\./g, "_")
+    .trim()
+    .replace(/^[. ]+|[. ]+$/g, "");
+  if (cleaned.length === 0 || /^[_\s.]*$/.test(cleaned)) {
+    return "默认项目";
+  }
+  return cleaned.slice(0, 64);
+};
+
 const buildTargetDirectory = (classification: Classification, now: Date): string => {
-  const base = join(classification.purpose, classification.project);
+  const purpose = sanitizeProjectSegment(classification.purpose);
+  const project = sanitizeProjectSegment(classification.project);
   if (!useTimeBucketPurposes.has(classification.purpose)) {
-    return base;
+    return join(purpose, project);
   }
 
-  return join(base, toTimeBucket(now));
+  return join(purpose, project, toTimeBucket(now));
 };
 
 const withTimestampOnName = (sourcePath: string, now: Date): string => {

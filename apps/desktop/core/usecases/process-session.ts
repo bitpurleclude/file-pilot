@@ -103,6 +103,10 @@ export const applySession = async (
   return executePlans(actionAppliedPlans, { dryRun });
 };
 
+export const hasExecutionFailures = (results: Awaited<ReturnType<typeof applySession>>): boolean => {
+  return results.some((result) => !result.executed && (result.reason?.startsWith("execute-failed") ?? false));
+};
+
 export const rollbackSession = async (executions: Awaited<ReturnType<typeof applySession>>) => {
   return rollbackExecutions(executions);
 };
