@@ -15,6 +15,7 @@
     "native:rebuild:electron": "electron-rebuild -f -w better-sqlite3",
     "test": "npm run native:rebuild:node && vitest run --root . apps/desktop/tests/unit apps/desktop/tests/integration",
     "test:e2e": "npm run native:rebuild:electron && playwright test",
+    "test:e2e:core": "npm run native:rebuild:electron && playwright test apps/desktop/tests/e2e/startup.spec.ts apps/desktop/tests/e2e/workflow.spec.ts apps/desktop/tests/e2e/rollback.spec.ts",
     "test:e2e:list": "playwright test --list",
     "test:qa": "npm run native:rebuild:node && vitest run --root . apps/desktop/tests/qa",
     "test:qa:perf": "npm run native:rebuild:node && vitest run --root . apps/desktop/tests/qa/performance-100-files.test.ts",

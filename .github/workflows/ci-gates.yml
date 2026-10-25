@@ -114,17 +114,14 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright browser
-        run: npx playwright install chromium
-
       - name: Build app
         run: npm run build
 
       - name: Rebuild native deps for Electron runtime
         run: npm run native:rebuild:electron
 
-      - name: E2E core scenarios
-        run: npx playwright test apps/desktop/tests/e2e/startup.spec.ts apps/desktop/tests/e2e/workflow.spec.ts apps/desktop/tests/e2e/error-path.spec.ts apps/desktop/tests/e2e/rule-learning.spec.ts apps/desktop/tests/e2e/migration.spec.ts
+      - name: E2E scenarios (package-smoke self-skips without FILE_PILOT_RUN_PACKAGED_SMOKE)
+        run: npx playwright test
 
   package-smoke-gate:
     name: Package Smoke (Windows NSIS)

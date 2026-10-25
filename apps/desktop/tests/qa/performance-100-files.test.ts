@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { applySession, processSession } from "../../core/usecases/process-session.js";
 import type { LlmClassifier } from "../../core/usecases/classify-files.js";
 import type { AppSettings } from "../../shared/types/settings.js";
+import type { Classification } from "../../shared/types/workflow.js";
 
 const tempDirs: string[] = [];
 
@@ -55,14 +56,23 @@ const settings: AppSettings = {
   }
 };
 
+const buildQaClassification = (): Classification => ({
+  purpose: "Documents",
+  project: "Perf",
+  confidence: 0.92,
+  reasons: ["qa-mock"],
+  decisionSource: "local-fallback"
+});
+
+let batchCalls = 0;
+
 const classifier: LlmClassifier = {
-  classify: async () => ({
-    purpose: "Documents",
-    project: "Perf",
-    confidence: 0.92,
-    reasons: ["qa-mock"],
-    decisionSource: "local-fallback"
-  })
+  classify: async () => buildQaClassification(),
+  // 批式分类：返回数组与输入按序对齐，结果与 classify 保持一致（确定性）。
+  classifyMany: async (inputs) => {
+    batchCalls += 1;
+    return inputs.map(() => buildQaClassification());
+  }
 };
 
 describe("qa-performance-100-files", () => {
@@ -109,12 +119,16 @@ describe("qa-performance-100-files", () => {
         scenario: "100-files",
         dryRunSeconds,
         executeSeconds,
-        executedCount: executeResult.filter((result) => result.executed).length
+        executedCount: executeResult.filter((result) => result.executed).length,
+        batchCalls
       }, null, 2),
       "utf-8"
     );
 
     expect(dryRunSeconds).toBeLessThan(8);
     expect(executeSeconds).toBeLessThan(20);
+    // 批式分类路径覆盖：processSession 应命中 classifyMany（批量）而非逐条 classify。
+    expect(batchCalls).toBeGreaterThanOrEqual(1);
+    expect(analyzed.classifications).toHaveLength(filePaths.length);
   });
 });

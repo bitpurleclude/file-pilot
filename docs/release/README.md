@@ -21,6 +21,7 @@
 ## Delivery Records
 
 - [deliverable-20261006.md](./deliverable-20261006.md)：2026-10-06 beta 渠道交付记录（版本 `0.1.0`，触发分支 `feat/deliverable-fixes-20261006`，新增便携版打包）
+- [e2e-remediation-20261006.md](./e2e-remediation-20261006.md)：2026-10-06 e2e 整改记录（版本 `0.1.0`，触发分支 `feat/e2e-remediation-20261006`，测试隔离/LLM stub/回滚与 UI e2e/门禁恢复/CI 修正）
 
 ## Rollback Path
 

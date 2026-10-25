@@ -5,6 +5,14 @@ export default defineConfig({
   timeout: 45_000,
   fullyParallel: false,
   workers: 1,
-  retries: 0,
-  reporter: "list"
+  forbidOnly: true,
+  retries: process.env.CI ? 1 : 0,
+  use: {
+    trace: "on-first-retry",
+    screenshot: "only-on-failure"
+  },
+  reporter: [
+    ["list"],
+    ["html", { open: "never", outputFolder: "test-results/e2e-html" }]
+  ]
 });

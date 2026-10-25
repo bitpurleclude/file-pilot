@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useCallback, useEffect, useMemo, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 
@@ -77,9 +77,12 @@ export const App = (): JSX.Element => {
   );
   const firstItemId = analyzeData?.items[0]?.item.id;
 
+  // Depends on the language instead of `t`: the `t` reference changes on every
+  // languageChanged event, which made this effect overwrite handler-written
+  // messages right after they were set.
   useEffect(() => {
     setMessage(t("app.dropMessage"));
-  }, [t]);
+  }, [i18n.language]);
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -92,7 +95,10 @@ export const App = (): JSX.Element => {
         setAppSettings(settingsResult.data);
         setReadOnlyMode(settingsResult.data.readOnlyMode);
 
-        if (settingsResult.data.language !== undefined) {
+        // Only switch when the language actually differs: changeLanguage emits
+        // languageChanged even for the same language, which cycled this effect
+        // forever and rolled back every settings draft before autosave.
+        if (settingsResult.data.language !== undefined && i18n.language !== settingsResult.data.language) {
           void i18n.changeLanguage(settingsResult.data.language);
         }
 
@@ -449,11 +455,14 @@ export const App = (): JSX.Element => {
     setMessage(t("app.installerLaunched"));
   };
 
-  const handleSettingsChange = (updated: AppSettings): void => {
+  // Stable identity: SettingsPage rebuilds its autosave controller whenever
+  // this prop changes, which would dispose an in-flight save and swallow the
+  // "saved" status indicator.
+  const handleSettingsChange = useCallback((updated: AppSettings): void => {
     setAppSettings(updated);
     setReadOnlyMode(updated.readOnlyMode);
     setWhitelistInput(updated.whitelistDirectories.join(";"));
-  };
+  }, []);
 
   if (currentPage === "settings" && appSettings !== null) {
     return (
@@ -473,11 +482,17 @@ export const App = (): JSX.Element => {
     <main className="container">
       <div className="flex items-center justify-between mb-4">
         <h1>{t("app.title")}</h1>
-        <Button variant="ghost" size="icon" onClick={() => setCurrentPage("settings")}>
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label={t("settings.title")}
+          data-testid="open-settings"
+          onClick={() => setCurrentPage("settings")}
+        >
           <Settings className="h-5 w-5" />
         </Button>
       </div>
-      <p>{message}</p>
+      <p data-testid="app-message">{message}</p>
 
       <FirstRunWizard
         visible={wizardVisible}
@@ -493,6 +508,7 @@ export const App = (): JSX.Element => {
 
       <section
         className="dropzone"
+        data-testid="dropzone"
         onDragOver={(event) => event.preventDefault()}
         onDrop={onDrop}
       >
@@ -582,7 +598,7 @@ export const App = (): JSX.Element => {
         </p>
       )}
 
-      {readOnlyMode && <p>{t("status.readOnly")}</p>}
+      {readOnlyMode && <p data-testid="status-read-only">{t("status.readOnly")}</p>}
 
       {latestVersion !== null && (
         <p>
