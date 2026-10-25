@@ -1,6 +1,7 @@
-import { resolve, sep } from "node:path";
+import { resolve } from "node:path";
 
 import { AppError } from "../../shared/errors/app-error.js";
+import { isPathInsideRoot } from "./path-safety.js";
 
 export const normalizeWhitelist = (directories: string[]): string[] => {
   const unique = new Set<string>();
@@ -10,27 +11,11 @@ export const normalizeWhitelist = (directories: string[]): string[] => {
   return [...unique];
 };
 
-const isCaseInsensitivePlatform = process.platform === "win32";
-
-const toComparable = (path: string): string => {
-  return isCaseInsensitivePlatform ? path.toLowerCase() : path;
-};
-
-const isPathWithinRoot = (path: string, root: string): boolean => {
-  const comparablePath = toComparable(resolve(path));
-  const resolvedRoot = resolve(root);
-  const comparableRoot = toComparable(resolvedRoot);
-  if (comparablePath === comparableRoot) {
-    return true;
-  }
-
-  // Boundary must be a path separator so "D:\safe" does NOT admit "D:\safethings".
-  const rootWithSep = resolvedRoot.endsWith(sep) ? resolvedRoot : resolvedRoot + sep;
-  return comparablePath.startsWith(toComparable(rootWithSep));
-};
-
+// The asserted path is a file path (including file name): the file must live
+// inside one of the whitelisted directories. The comparison is segment-aware
+// (no bare string prefix) and case-insensitive on Windows.
 export const assertPathInWhitelist = (path: string, whitelist: string[]): void => {
-  const allowed = whitelist.some((root) => isPathWithinRoot(path, root));
+  const allowed = whitelist.some((root) => isPathInsideRoot(path, root));
   if (!allowed) {
     throw new AppError("USER_PATH_NOT_ALLOWED", `路径不在白名单内: ${path}`, "USER");
   }

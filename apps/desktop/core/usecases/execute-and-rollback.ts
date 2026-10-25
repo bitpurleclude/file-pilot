@@ -1,128 +1,66 @@
-import { access, copyFile, mkdir, rename, rm, unlink } from "node:fs/promises";
+import { constants } from "node:fs";
+import { access, copyFile, mkdir, rename, unlink } from "node:fs/promises";
 import { basename, dirname, extname, join } from "node:path";
 
+import { timestampSuffix } from "./plan-placement.js";
+import { EXECUTOR_CONFIG } from "../../shared/config/executor.config.js";
 import type { ExecutionResult, PlacementPlan } from "../../shared/types/workflow.js";
 
 export interface ExecutorOptions {
   dryRun: boolean;
 }
 
-const MAX_CONFLICT_ATTEMPTS = 99;
+// Encoded in ExecutionResult.reason so rollback can pick the matching strategy
+// without changing the shared ExecutionResult type.
+const MOVE_VIA_COPY_REASON = "moved-via-copy";
 
-const fileExists = async (path: string): Promise<boolean> => {
+const pathExists = async (path: string): Promise<boolean> => {
   try {
-    await access(path);
+    await access(path, constants.F_OK);
     return true;
   } catch {
     return false;
   }
 };
 
-const isCrossDeviceError = (error: unknown): boolean => {
-  return typeof error === "object"
-    && error !== null
-    && (error as NodeJS.ErrnoException).code === "EXDEV";
+const toMessage = (error: unknown): string => {
+  return error instanceof Error ? error.message : "unknown error";
 };
 
-const toErrorMessage = (error: unknown): string => {
-  return error instanceof Error ? error.message : String(error);
+const isExdevError = (error: unknown): boolean => {
+  if (error instanceof Error) {
+    return (error as NodeJS.ErrnoException).code === "EXDEV";
+  }
+  return false;
 };
 
-const withSuffix = (path: string, attempt: number): string => {
-  const ext = extname(path);
-  const base = basename(path, ext);
-  return join(dirname(path), `${base}-${attempt}${ext}`);
-};
+const withRenamedTarget = async (plan: PlacementPlan): Promise<PlacementPlan | null> => {
+  const targetName = basename(plan.targetPath);
+  const extension = extname(targetName);
+  const stem = basename(plan.targetPath, extension);
+  const directory = dirname(plan.targetPath);
 
-/**
- * Resolve the final target for a plan under its conflict policy.
- * Returns null when the policy says "skip" and the target is taken,
- * or when no free rename slot could be found.
- */
-const resolveConflictTarget = async (plan: PlacementPlan): Promise<string | null> => {
-  if (!(await fileExists(plan.targetPath))) {
-    return plan.targetPath;
-  }
-
-  if (plan.conflictPolicy === "overwrite") {
-    return plan.targetPath;
-  }
-
-  if (plan.conflictPolicy === "skip") {
-    return null;
-  }
-
-  for (let attempt = 1; attempt <= MAX_CONFLICT_ATTEMPTS; attempt += 1) {
-    const candidate = withSuffix(plan.targetPath, attempt);
-    if (!(await fileExists(candidate))) {
-      return candidate;
+  for (let attempt = 0; attempt < EXECUTOR_CONFIG.conflictRenameMaxAttempts; attempt += 1) {
+    // The timestamp has second precision, so later attempts add an index to
+    // stay unique when two same-named files land in the same second.
+    const attemptSuffix = attempt === 0 ? "" : `-${attempt + 1}`;
+    const candidate = join(directory, `${stem}-${timestampSuffix(new Date())}${attemptSuffix}${extension}`);
+    if (!(await pathExists(candidate))) {
+      return { ...plan, targetPath: candidate };
     }
   }
 
   return null;
 };
 
-/** Move with cross-device fallback (rename fails with EXDEV across volumes). */
-const moveFile = async (sourcePath: string, targetPath: string): Promise<void> => {
+const moveByCopyAndDelete = async (plan: PlacementPlan): Promise<void> => {
+  await copyFile(plan.sourcePath, plan.targetPath);
   try {
-    await rename(sourcePath, targetPath);
-  } catch (error) {
-    if (!isCrossDeviceError(error)) {
-      throw error;
-    }
-
-    await copyFile(sourcePath, targetPath);
-    await unlink(sourcePath);
-  }
-};
-
-const executeOne = async (plan: PlacementPlan): Promise<ExecutionResult> => {
-  try {
-    await mkdir(dirname(plan.targetPath), { recursive: true });
-    const target = await resolveConflictTarget(plan);
-    if (target === null) {
-      return {
-        plan,
-        executed: false,
-        rollbackable: false,
-        reason: plan.conflictPolicy === "skip" ? "conflict-skip" : "conflict-no-slot"
-      };
-    }
-
-    if (plan.conflictPolicy === "overwrite" && target === plan.targetPath) {
-      // Windows rename refuses to replace an existing file even with the same
-      // policy; clearing first keeps "overwrite" meaningful on both platforms.
-      await rm(plan.targetPath, { force: true });
-    }
-
-    if (plan.action === "copy") {
-      await copyFile(plan.sourcePath, target);
-      // Copies keep rollbackable=true so rollback can record the explicit
-      // "copy-action rollback skipped" reason (original data shape).
-      return {
-        plan,
-        executed: true,
-        rollbackable: true,
-        ...(target === plan.targetPath ? {} : { resolvedTargetPath: target })
-      };
-    }
-
-    await moveFile(plan.sourcePath, target);
-    return {
-      plan,
-      executed: true,
-      rollbackable: true,
-      ...(target === plan.targetPath ? {} : { resolvedTargetPath: target })
-    };
-  } catch (error) {
-    // Per-item failure never aborts the batch: already-moved files must stay
-    // recorded as executed so the session stays rollbackable.
-    return {
-      plan,
-      executed: false,
-      rollbackable: false,
-      reason: `execute-failed:${toErrorMessage(error)}`
-    };
+    await unlink(plan.sourcePath);
+  } catch {
+    // Source removal failed after a successful copy: the data is safe at the
+    // target and the session stays rollbackable (rollback copies back and
+    // unlinks the target, which also cleans up the leftover source copy).
   }
 };
 
@@ -141,7 +79,87 @@ export const executePlans = async (
 
   const results: ExecutionResult[] = [];
   for (const plan of plans) {
-    results.push(await executeOne(plan));
+    try {
+      let targetPath = plan.targetPath;
+
+      if (await pathExists(plan.targetPath)) {
+        if (plan.conflictPolicy === "rename") {
+          const renamed = await withRenamedTarget(plan);
+          if (renamed === null) {
+            results.push({
+              plan,
+              executed: false,
+              rollbackable: false,
+              reason: "error:target-name-conflict"
+            });
+            continue;
+          }
+          targetPath = renamed.targetPath;
+        } else if (plan.conflictPolicy === "overwrite") {
+          await unlink(plan.targetPath);
+        } else if (plan.conflictPolicy === "skip") {
+          results.push({
+            plan,
+            executed: false,
+            rollbackable: false,
+            reason: "skipped:target-exists"
+          });
+          continue;
+        } else {
+          results.push({
+            plan,
+            executed: false,
+            rollbackable: false,
+            reason: `error:unsupported-conflict-policy:${plan.conflictPolicy}`
+          });
+          continue;
+        }
+      }
+
+      await mkdir(dirname(targetPath), { recursive: true });
+      const effectivePlan: PlacementPlan = { ...plan, targetPath };
+
+      if (effectivePlan.action === "copy") {
+        await copyFile(effectivePlan.sourcePath, effectivePlan.targetPath);
+        results.push({
+          plan: effectivePlan,
+          executed: true,
+          rollbackable: true,
+          reason: "copied"
+        });
+        continue;
+      }
+
+      try {
+        await rename(effectivePlan.sourcePath, effectivePlan.targetPath);
+      } catch (error) {
+        if (!isExdevError(error)) {
+          throw error;
+        }
+        // Cross-device move: degrade to copy + delete so the plan still completes.
+        await moveByCopyAndDelete(effectivePlan);
+        results.push({
+          plan: effectivePlan,
+          executed: true,
+          rollbackable: true,
+          reason: MOVE_VIA_COPY_REASON
+        });
+        continue;
+      }
+
+      results.push({
+        plan: effectivePlan,
+        executed: true,
+        rollbackable: true
+      });
+    } catch (error) {
+      results.push({
+        plan,
+        executed: false,
+        rollbackable: false,
+        reason: `error:${toMessage(error)}`
+      });
+    }
   }
 
   return results;
@@ -163,35 +181,26 @@ export const rollbackExecutions = async (results: ExecutionResult[]): Promise<Ex
       continue;
     }
 
-    const actualTarget = result.resolvedTargetPath ?? result.plan.targetPath;
     try {
       await mkdir(dirname(result.plan.sourcePath), { recursive: true });
-
-      let restorePath = result.plan.sourcePath;
-      let conflictRestored = false;
-      if (await fileExists(restorePath)) {
-        conflictRestored = true;
-        for (let attempt = 1; attempt <= MAX_CONFLICT_ATTEMPTS; attempt += 1) {
-          const candidate = withSuffix(restorePath, attempt);
-          if (!(await fileExists(candidate))) {
-            restorePath = candidate;
-            break;
-          }
-        }
+      if (result.reason === MOVE_VIA_COPY_REASON) {
+        // The move degraded to copy + delete: restore by copying back and
+        // removing the target copy.
+        await copyFile(result.plan.targetPath, result.plan.sourcePath);
+        await unlink(result.plan.targetPath);
+      } else {
+        await rename(result.plan.targetPath, result.plan.sourcePath);
       }
-
-      await moveFile(actualTarget, restorePath);
       rollbackResults.push({
         ...result,
         executed: false,
-        rollbackable: false,
-        reason: conflictRestored ? "rolled-back-conflict" : "rolled-back"
+        reason: "rolled-back"
       });
     } catch (error) {
-      // Stays executed/rollbackable so the user can retry the rollback.
       rollbackResults.push({
         ...result,
-        reason: `rollback-failed:${toErrorMessage(error)}`
+        executed: true,
+        reason: `rollback-failed:${toMessage(error)}`
       });
     }
   }

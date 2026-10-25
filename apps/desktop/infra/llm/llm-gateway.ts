@@ -2,25 +2,116 @@ import { LLM_CONFIG } from "../../shared/config/llm.config.js";
 import { resolveProviderModels } from "../../shared/config/llm-providers.js";
 import type { LlmProviderConfig } from "../../shared/types/llm-provider.js";
 import type { AppSettings } from "../../shared/types/settings.js";
-import { buildHttpRequest, parseResponse } from "./provider-adapter.js";
+import { buildHttpRequest, parseResponse, parseUsage } from "./provider-adapter.js";
+import type { LlmUsage } from "./provider-adapter.js";
 
 export interface ChatMessage {
   role: "system" | "user";
   content: string;
 }
 
-export interface LlmCallFailure {
-  errorCode: string;
-  message: string;
-  /** HTTP status when the provider answered with a non-2xx response. */
-  httpStatus?: number;
+export interface LlmCallResult {
+  content: string;
+  model: string;
+  source: "llm-primary" | "llm-secondary";
+  usage?: LlmUsage;
 }
 
-export type LlmCallResult =
-  | { ok: true; content: string; model: string; source: "llm-primary" | "llm-secondary" }
-  | { ok: false; failure: LlmCallFailure };
+/**
+ * LLM 调用失败分类：
+ * - auth: HTTP 401/403，API key 无效 — 不重试，且同一把 key 下的备模型直接跳过
+ * - client: HTTP 400/404 等不可重试的客户端错误 — 该模型立即放弃（备模型仍可尝试）
+ * - retryable-http: HTTP 408/429/5xx — 指数退避重试（429 优先遵循 Retry-After）
+ * - network: 网络错误/超时 — 指数退避重试
+ * - invalid-response: 2xx 但响应体不可解析 — 按可重试处理
+ */
+export type LlmFailureKind = "auth" | "client" | "retryable-http" | "network" | "invalid-response";
 
-const NON_RETRYABLE_HTTP_STATUSES = new Set([400, 401, 403, 404, 405, 413, 422]);
+export interface LlmFailure {
+  kind: LlmFailureKind;
+  status?: number;
+  retryAfterMs?: number;
+  detail?: string;
+}
+
+type ChatApiOutcome =
+  | { ok: true; content: string; usage: LlmUsage | null }
+  | { ok: false; failure: LlmFailure };
+
+type ModelAttemptOutcome =
+  | { ok: true; content: string; usage: LlmUsage | null }
+  | { ok: false; skipRemainingModels: boolean };
+
+const AUTH_FAILURE_STATUSES: ReadonlySet<number> = new Set([401, 403]);
+const NON_RETRYABLE_STATUSES: ReadonlySet<number> = new Set([400, 401, 403, 404]);
+
+/**
+ * Retry-After 头解析上限（毫秒），防止恶意/异常响应导致超长等待。
+ */
+export const RETRY_AFTER_CAP_MS = 5_000;
+
+/**
+ * 解析 Retry-After 头（支持 delta-seconds 与 HTTP-date 两种形式），返回等待毫秒数。
+ */
+export const parseRetryAfterMs = (headerValue: string | null | undefined): number | null => {
+  if (headerValue === undefined || headerValue === null) {
+    return null;
+  }
+
+  const trimmed = headerValue.trim();
+  if (trimmed.length === 0) {
+    return null;
+  }
+
+  const seconds = Number(trimmed);
+  if (Number.isFinite(seconds) && seconds >= 0) {
+    return Math.min(seconds * 1000, RETRY_AFTER_CAP_MS);
+  }
+
+  const httpDateMs = Date.parse(trimmed);
+  if (Number.isNaN(httpDateMs)) {
+    return null;
+  }
+
+  const deltaMs = httpDateMs - Date.now();
+  if (deltaMs <= 0) {
+    return 0;
+  }
+  return Math.min(deltaMs, RETRY_AFTER_CAP_MS);
+};
+
+export const classifyHttpFailure = (status: number, retryAfterHeader: string | null): LlmFailure => {
+  if (AUTH_FAILURE_STATUSES.has(status)) {
+    return { kind: "auth", status };
+  }
+
+  if (NON_RETRYABLE_STATUSES.has(status)) {
+    return { kind: "client", status };
+  }
+
+  if (status === 429) {
+    const retryAfterMs = parseRetryAfterMs(retryAfterHeader);
+    return { kind: "retryable-http", status, ...(retryAfterMs === null ? {} : { retryAfterMs }) };
+  }
+
+  return { kind: "retryable-http", status };
+};
+
+const isRetryableFailure = (failure: LlmFailure): boolean => {
+  return failure.kind === "retryable-http"
+    || failure.kind === "network"
+    || failure.kind === "invalid-response";
+};
+
+const computeBackoffDelayMs = (failure: LlmFailure, attempt: number): number => {
+  // 429 且服务端给出 Retry-After 时直接遵循服务端指示（已做 5s 上限截断）
+  if (failure.kind === "retryable-http" && failure.retryAfterMs !== undefined) {
+    return failure.retryAfterMs;
+  }
+
+  const exponential = LLM_CONFIG.retryBaseDelayMs * 2 ** attempt;
+  return exponential + Math.random() * LLM_CONFIG.retryJitterMs;
+};
 
 const delay = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
@@ -39,13 +130,23 @@ const pickActiveProvider = (settings: AppSettings): LlmProviderConfig | null => 
   return fallback ?? null;
 };
 
-type AttemptResult = { content: string } | { failure: LlmCallFailure; retryable: boolean };
+const readRetryAfterHeader = (response: Response): string | null => {
+  try {
+    const value = response.headers.get("retry-after");
+    return value !== null && value.length > 0 ? value : null;
+  } catch {
+    // 部分 Response 桩（测试 mock）没有 headers — 按无 Retry-After 处理（有意的最小化吞错）。
+    return null;
+  }
+};
 
 const callChatApi = async (params: {
   provider: LlmProviderConfig;
   messages: ChatMessage[];
   model: string;
-}): Promise<AttemptResult> => {
+  maxTokens: number;
+  fetchImpl: typeof fetch;
+}): Promise<ChatApiOutcome> => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), LLM_CONFIG.timeoutMs);
 
@@ -53,9 +154,11 @@ const callChatApi = async (params: {
     const request = buildHttpRequest({
       provider: params.provider,
       messages: params.messages,
-      model: params.model
+      model: params.model,
+      temperature: LLM_CONFIG.temperature,
+      maxTokens: params.maxTokens
     });
-    const response = await fetch(request.url, {
+    const response = await params.fetchImpl(request.url, {
       method: request.method,
       headers: request.headers,
       body: request.body,
@@ -64,12 +167,8 @@ const callChatApi = async (params: {
 
     if (!response.ok) {
       return {
-        failure: {
-          errorCode: `LLM_HTTP_${response.status}`,
-          message: `LLM provider returned HTTP ${response.status}`,
-          ...(Number.isFinite(response.status) ? { httpStatus: response.status } : {})
-        },
-        retryable: !NON_RETRYABLE_HTTP_STATUSES.has(response.status)
+        ok: false,
+        failure: classifyHttpFailure(response.status, readRetryAfterHeader(response))
       };
     }
 
@@ -78,100 +177,128 @@ const callChatApi = async (params: {
       provider: params.provider,
       responseBody
     });
+
     if (content === null) {
-      return {
-        failure: {
-          errorCode: "LLM_UNPARSEABLE_RESPONSE",
-          message: "LLM response body did not contain chat content"
-        },
-        retryable: true
-      };
+      return { ok: false, failure: { kind: "invalid-response" } };
     }
 
-    return { content };
+    return { ok: true, content, usage: parseUsage(responseBody) };
   } catch (error) {
+    // 网络错误/超时（含 AbortError）：记录最小 detail 用于诊断，重试由上层判定。
     return {
+      ok: false,
       failure: {
-        errorCode: "LLM_NETWORK_ERROR",
-        message: error instanceof Error ? error.message : "network error"
-      },
-      retryable: true
+        kind: "network",
+        detail: error instanceof Error ? error.message : String(error)
+      }
     };
   } finally {
     clearTimeout(timer);
   }
 };
 
-const callWithRetry = async (params: {
+const callModelWithRetry = async (params: {
   provider: LlmProviderConfig;
   messages: ChatMessage[];
   model: string;
-}): Promise<{ content: string } | { failure: LlmCallFailure; stopModelFallback: boolean }> => {
+  maxTokens: number;
+  fetchImpl: typeof fetch;
+}): Promise<ModelAttemptOutcome> => {
+  let skipRemainingModels = false;
+
   for (let attempt = 0; attempt <= LLM_CONFIG.retryCount; attempt += 1) {
-    const outcome = await callChatApi(params);
-    if ("content" in outcome) {
-      return { content: outcome.content };
+    const outcome = await callChatApi({
+      provider: params.provider,
+      messages: params.messages,
+      model: params.model,
+      maxTokens: params.maxTokens,
+      fetchImpl: params.fetchImpl
+    });
+
+    if (outcome.ok) {
+      return outcome;
     }
 
-    if (!outcome.retryable) {
-      // 401/403/404 and friends will fail on the secondary model too —
-      // stop early instead of burning the remaining attempts.
-      return { failure: outcome.failure, stopModelFallback: true };
+    if (outcome.failure.kind === "auth") {
+      skipRemainingModels = true;
+    }
+
+    if (!isRetryableFailure(outcome.failure)) {
+      break;
     }
 
     if (attempt < LLM_CONFIG.retryCount) {
-      await delay(300 * (attempt + 1));
+      await delay(computeBackoffDelayMs(outcome.failure, attempt));
     }
   }
 
-  return {
-    failure: {
-      errorCode: "LLM_RETRIES_EXHAUSTED",
-      message: `LLM call failed after ${LLM_CONFIG.retryCount + 1} attempts`
-    },
-    stopModelFallback: false
-  };
+  return { ok: false, skipRemainingModels };
+};
+
+const toCallResult = (
+  base: { content: string; model: string; source: "llm-primary" | "llm-secondary" },
+  usage: LlmUsage | null
+): LlmCallResult => {
+  if (usage === null) {
+    return base;
+  }
+  return { ...base, usage };
 };
 
 export const callLlmWithFallback = async (params: {
   settings: AppSettings;
   messages: ChatMessage[];
-}): Promise<LlmCallResult> => {
+  fetchImpl?: typeof fetch;
+  maxTokens?: number;
+}): Promise<LlmCallResult | null> => {
+  const fetchImpl = params.fetchImpl ?? fetch;
   const provider = pickActiveProvider(params.settings);
   if (provider === null) {
-    return {
-      ok: false,
-      failure: {
-        errorCode: "LLM_NO_ENABLED_PROVIDER",
-        message: "no enabled LLM provider is configured"
-      }
-    };
+    return null;
   }
 
+  const maxTokens = params.maxTokens ?? LLM_CONFIG.maxTokensSingle;
   const resolvedModels = resolveProviderModels(provider);
-  const primary = await callWithRetry({
+
+  const primary = await callModelWithRetry({
     provider,
     model: resolvedModels.primaryModel,
-    messages: params.messages
+    messages: params.messages,
+    maxTokens,
+    fetchImpl
   });
 
-  if ("content" in primary) {
-    return { ok: true, content: primary.content, model: resolvedModels.primaryModel, source: "llm-primary" };
+  if (primary.ok) {
+    return toCallResult(
+      { content: primary.content, model: resolvedModels.primaryModel, source: "llm-primary" },
+      primary.usage
+    );
   }
 
-  if (primary.stopModelFallback) {
-    return { ok: false, failure: primary.failure };
+  // 401/403 意味着同一把 API key 不可用，备模型共用同一把 key，直接放弃。
+  if (primary.skipRemainingModels) {
+    return null;
   }
 
-  const secondary = await callWithRetry({
+  const secondary = await callModelWithRetry({
     provider,
     model: resolvedModels.secondaryModel,
-    messages: params.messages
+    messages: params.messages,
+    maxTokens,
+    fetchImpl
   });
 
-  if ("content" in secondary) {
-    return { ok: true, content: secondary.content, model: resolvedModels.secondaryModel, source: "llm-secondary" };
+  if (secondary.ok) {
+    return toCallResult(
+      { content: secondary.content, model: resolvedModels.secondaryModel, source: "llm-secondary" },
+      secondary.usage
+    );
   }
 
-  return { ok: false, failure: secondary.failure };
+  return null;
+};
+
+export const __test__ = {
+  parseRetryAfterMs,
+  classifyHttpFailure
 };

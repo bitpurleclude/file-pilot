@@ -12,6 +12,25 @@ afterEach(async () => {
   await Promise.all(tempRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
+/**
+ * Recursively collects the paths of every "apiKey" field inside a parsed
+ * settings JSON document, used to assert that credentials never reach disk.
+ */
+const collectApiKeyPaths = (value: unknown, prefix = ""): string[] => {
+  if (Array.isArray(value)) {
+    return value.flatMap((item, index) => collectApiKeyPaths(item, `${prefix}[${index}]`));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.entries(value).flatMap(([key, item]) => {
+      const path = prefix.length > 0 ? `${prefix}.${key}` : key;
+      return key === "apiKey"
+        ? [path, ...collectApiKeyPaths(item, path)]
+        : collectApiKeyPaths(item, path);
+    });
+  }
+  return [];
+};
+
 describe("settings-repository", () => {
   it("loads defaults and persists readOnlyMode", async () => {
     const root = await mkdtemp(join(tmpdir(), "file-pilot-settings-"));
@@ -28,6 +47,9 @@ describe("settings-repository", () => {
 
     const updated = await loadSettings(root);
     expect(updated.readOnlyMode).toBe(true);
+
+    const persisted = JSON.parse(await readFile(join(root, "settings.json"), "utf-8")) as unknown;
+    expect(collectApiKeyPaths(persisted)).toEqual([]);
   });
 
   it("migrates legacy llm config into llmProviders and rewrites settings file", async () => {
@@ -62,6 +84,7 @@ describe("settings-repository", () => {
     const rewritten = JSON.parse(await readFile(filePath, "utf-8")) as Record<string, unknown>;
     expect(rewritten.llm).toBeUndefined();
     expect(rewritten.llmProviders).toBeDefined();
+    expect(collectApiKeyPaths(rewritten)).toEqual([]);
   });
 
   it("backfills provider model control fields when missing", async () => {
@@ -97,5 +120,31 @@ describe("settings-repository", () => {
     expect(provider?.modelControlMode).toBeDefined();
     expect(provider?.intensity).toBeDefined();
     expect(provider?.intensityProfiles.speed.primaryModel).toBeDefined();
+  });
+
+  it("keeps provider api keys out of settings.json and restores them via the default credential store", async () => {
+    const root = await mkdtemp(join(tmpdir(), "file-pilot-settings-keys-"));
+    tempRoots.push(root);
+
+    const defaults = await loadSettings(root);
+    const baseProvider = defaults.llmProviders.providers[0];
+    expect(baseProvider).toBeDefined();
+    if (baseProvider === undefined) {
+      return;
+    }
+
+    await saveSettings(root, {
+      ...defaults,
+      llmProviders: {
+        activeProviderId: baseProvider.id,
+        providers: [{ ...baseProvider, apiKey: "sk-roundtrip-123" }]
+      }
+    });
+
+    const persisted = JSON.parse(await readFile(join(root, "settings.json"), "utf-8")) as unknown;
+    expect(collectApiKeyPaths(persisted)).toEqual([]);
+
+    const reloaded = await loadSettings(root);
+    expect(reloaded.llmProviders.providers[0]?.apiKey).toBe("sk-roundtrip-123");
   });
 });

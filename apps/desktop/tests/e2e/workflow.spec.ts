@@ -55,7 +55,11 @@ test("whitelist + analyze + followup + dry-run workflow", async () => {
     expect(result).toHaveProperty("analyze.ok", true);
     expect(result).toHaveProperty("followup.ok", true);
     expect(result).toHaveProperty("correction.ok", true);
-    expect(result).toHaveProperty("followup.data.items.0.decisionSource", "followup");
+    // The local fallback classifies the .md sample at confidence 0.7 (>= the
+    // 0.6 ask threshold), so no follow-up is pending and the answer must not
+    // touch any item — follow-up answers only apply to needsFollowUp items.
+    expect(result).toHaveProperty("followup.data.updatedCount", 0);
+    expect(result).toHaveProperty("followup.data.needsFollowUp", false);
     expect(result).toHaveProperty("correction.data.items.0.decisionSource", "manual-correction");
     expect(result).toHaveProperty("dryRun.ok", true);
     expect(result).toHaveProperty("rules.ok", true);

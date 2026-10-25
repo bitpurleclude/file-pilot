@@ -6,12 +6,8 @@ import {
   submitFollowupRequestSchema
 } from "../../../shared/ipc/contracts.js";
 import { RuleFirstLlmClassifier } from "../../../infra/llm/rule-first-llm.js";
-import {
-  applySession,
-  hasExecutionFailures,
-  processSession,
-  rollbackSession
-} from "../../../core/usecases/process-session.js";
+import { loadSettings } from "../../../infra/storage/settings-repository.js";
+import { applySession, processSession, rollbackSession } from "../../../core/usecases/process-session.js";
 import { buildPlacementPlan } from "../../../core/usecases/plan-placement.js";
 import { createSession, updateSessionStatus, withExecutions } from "../../../core/usecases/session-manager.js";
 import { openSqliteDatabase } from "../../../infra/storage/sqlite/db.js";
@@ -28,7 +24,8 @@ import {
   replaceSessionItemsSqlite,
   upsertSessionSqlite
 } from "../../../infra/storage/sqlite/repositories/sessions-repository.js";
-import { toIpcError, type IpcResult } from "../../../shared/errors/app-error.js";
+import { EXECUTOR_CONFIG } from "../../../shared/config/executor.config.js";
+import { AppError, toIpcError, type IpcResult } from "../../../shared/errors/app-error.js";
 import type { ClassificationRule } from "../../../shared/types/rules.js";
 import type { ExecutionResult, ProcessedSessionItem } from "../../../shared/types/workflow.js";
 import { confidenceBandOf } from "../../../core/usecases/classify-files.js";
@@ -36,13 +33,25 @@ import {
   type HandlerContext,
   type UnknownPayload,
   buildRuleFromItem,
-  loadSettingsWithContext,
   markRuleHits,
   safeWriteLog,
+  settingsRootPath,
   sqlitePath,
   toDecisionRecords,
   traceId
 } from "./shared.js";
+
+const READ_ONLY_MODE_ERROR_CODE = "USER_READ_ONLY_MODE";
+
+const assertNotReadOnly = (settings: { readOnlyMode: boolean }, operation: string): void => {
+  if (settings.readOnlyMode) {
+    throw new AppError(
+      READ_ONLY_MODE_ERROR_CODE,
+      `只读模式下禁止执行该操作: ${operation}`,
+      "USER"
+    );
+  }
+};
 
 const toFollowUpQuestions = (
   items: ProcessedSessionItem[]
@@ -69,7 +78,8 @@ export const sessionHandlers = {
 
       const req = analyzeRequestSchema.parse(payload);
       const db = openSqliteDatabase(sqlitePath(context));
-      const settings = await loadSettingsWithContext(context);
+      const settings = await loadSettings(settingsRootPath(context));
+      assertNotReadOnly(settings, "analyze");
       const rules = listRulesSqlite(db, { includeDisabled: false });
 
       const session = updateSessionStatus(createSession({ itemIds: [], sessionId: req.sessionId }), "analyzing");
@@ -160,25 +170,33 @@ export const sessionHandlers = {
         throw new Error("session not found");
       }
 
+      const settings = await loadSettings(settingsRootPath(context));
+      if (!req.dryRun) {
+        assertNotReadOnly(settings, "apply");
+      }
+
       const results = await applySession(session.executions.map((item) => item.plan), req.dryRun, req.action);
-      const executionFailed = !req.dryRun && hasExecutionFailures(results);
-      const updated = withExecutions(
-        updateSessionStatus(session, req.dryRun ? "planned" : (executionFailed ? "failed" : "done")),
-        results
-      );
+      const executedCount = results.filter((item) => item.executed).length;
+      // Only hard errors count as failures — `skipped:target-exists` is an
+      // expected outcome and must not keep the session stuck in "planned".
+      const failedCount = req.dryRun
+        ? 0
+        : results.filter((item) => !item.executed && item.reason?.startsWith("error:")).length;
+      const skippedCount = req.dryRun
+        ? 0
+        : results.filter((item) => !item.executed && item.reason?.startsWith("skipped:")).length;
+      const nextStatus = req.dryRun || failedCount > 0 ? "planned" : "done";
+      const updated = withExecutions(updateSessionStatus(session, nextStatus), results);
       upsertSessionSqlite(db, updated);
 
       await safeWriteLog(context, {
-        level: executionFailed ? "error" : "info",
+        level: "info",
         category: "execution",
-        code: executionFailed ? "SESSION_APPLY_PARTIAL_FAILURE" : "SESSION_APPLY_DONE",
-        message: executionFailed ? "apply completed with per-item failures" : "apply completed",
+        code: "SESSION_APPLY_DONE",
+        message: "apply completed",
         traceId: t,
         sessionId: req.sessionId,
-        details: {
-          executedCount: results.filter((r) => r.executed).length,
-          failedCount: results.filter((r) => !r.executed && (r.reason?.startsWith("execute-failed") ?? false)).length
-        }
+        details: { executedCount, failedCount, skippedCount, dryRun: req.dryRun }
       });
 
       return { ok: true, data: updated };
@@ -254,7 +272,7 @@ export const sessionHandlers = {
       });
 
       const db = openSqliteDatabase(sqlitePath(context));
-      const settings = await loadSettingsWithContext(context);
+      const settings = await loadSettings(settingsRootPath(context));
       const session = getSessionByIdSqlite(db, req.sessionId);
       if (session === undefined) {
         throw new Error("session not found");
@@ -264,7 +282,9 @@ export const sessionHandlers = {
       const now = new Date();
       let updatedCount = 0;
       const nextItems: ProcessedSessionItem[] = items.map((item): ProcessedSessionItem => {
-        if (!item.needsFollowUp && !req.applyToAll) {
+        // applyToAll means "apply the answer to every pending follow-up item";
+        // items that never needed follow-up must keep their original classification.
+        if (!item.needsFollowUp) {
           return item;
         }
 
@@ -370,7 +390,7 @@ export const sessionHandlers = {
       });
 
       const db = openSqliteDatabase(sqlitePath(context));
-      const settings = await loadSettingsWithContext(context);
+      const settings = await loadSettings(settingsRootPath(context));
       const session = getSessionByIdSqlite(db, req.sessionId);
       if (session === undefined) {
         throw new Error("session not found");
@@ -388,7 +408,10 @@ export const sessionHandlers = {
         }
 
         updatedCount += 1;
-        const confidence = Math.max(item.classification.confidence, 0.95);
+        const confidence = Math.max(
+          item.classification.confidence,
+          EXECUTOR_CONFIG.manualCorrectionConfidence
+        );
         const classification = {
           ...item.classification,
           purpose: req.purpose,

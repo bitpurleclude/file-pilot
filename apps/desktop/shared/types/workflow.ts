@@ -58,6 +58,7 @@ export interface Classification {
   decisionSource?: DecisionSource;
   promptVersion?: string;
   model?: string;
+  usage?: { promptTokens: number; completionTokens: number };
 }
 
 export interface PlacementPlan {
