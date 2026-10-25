@@ -21,11 +21,6 @@ const purposeSchema = z.enum([
   "Research"
 ]);
 
-// Project/answer values are joined into placement target paths, so they must
-// never carry path separators, Windows-illegal characters, or `.`/`..`.
-export const projectSegmentSchema = z.string().min(1).max(64)
-  .regex(/^[^\\/:*?"<>|]+$/, "must not contain path separators or Windows-illegal characters")
-  .refine((value) => value !== "." && value !== "..", "must not be a relative path segment");
 
 export const analyzeRequestSchema = z.object({
   sessionId: z.string().uuid(),
@@ -165,8 +160,10 @@ export const saveSettingsRequestSchema = z.object({
 }).strict();
 
 export const submitFollowupRequestSchema = z.object({
+  // answer 可以是坐标令牌（如 "NEW: 项目名"），路径安全由 plan-placement 的
+  // sanitizePathSegment 在构造目标路径时兜底，契约层只保证非空。
   sessionId: z.string().uuid(),
-  answer: projectSegmentSchema,
+  answer: z.string().min(1),
   applyToAll: z.boolean().default(true)
 });
 
@@ -174,7 +171,9 @@ export const saveCorrectionsRequestSchema = z.object({
   sessionId: z.string().uuid(),
   fileId: z.string().min(1),
   purpose: purposeSchema,
-  project: projectSegmentSchema,
+  // project 可为层级坐标路径（如 "10-考公/1-行测"）；路径安全由
+  // plan-placement/coordinate-resolution 的分段消毒兜底。
+  project: z.string().min(1),
   saveAsRule: z.boolean().default(false),
   applyToAll: z.boolean().default(false)
 });
@@ -188,7 +187,7 @@ export const updateRuleRequestSchema = z
     ruleId: z.string().min(1),
     enabled: z.boolean().optional(),
     priority: z.number().int().min(0).optional(),
-    project: projectSegmentSchema.optional(),
+    project: z.string().min(1).optional(),
     projectId: z.string().uuid().optional(),
     purpose: purposeSchema.optional()
   })
