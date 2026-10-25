@@ -1,51 +1,62 @@
-﻿# QA Acceptance (M2/M3)
+# QA Acceptance
 
 ## Purpose
 
-This document defines the quality acceptance suite for M2/M3 and its CI enforcement strategy.
+Defines the QA acceptance suites that run outside the unit/integration gate,
+plus the CI policy for nightly and pre-release verification. Every result must
+name the commit it was validated on; do not reuse a green result across
+branches (see `docs/release/README.md`).
 
 ## Test Suites
 
-1. Performance acceptance
-- file: `apps/desktop/tests/qa/performance-100-files.test.ts`
-- workload: generate 100-file sandbox dataset
-- thresholds:
+### 1. Performance acceptance
+
+- File: `apps/desktop/tests/qa/performance-100-files.test.ts`
+- Workload: generated 100-file sandbox dataset
+- Thresholds:
   - dry-run total duration `< 8s`
   - execute total duration `< 20s`
-- output: `test-results/qa/perf-*.json`
+- Output: `test-results/qa/perf-*.json`
 
-2. Rollback reliability acceptance
-- file: `apps/desktop/tests/qa/rollback-reliability.test.ts`
-- workload: batch execution with injected failures + rollback loop
-- threshold:
-  - rollback success rate `> 99%`
-- output: `test-results/qa/reliability-*.json`
+### 2. Rollback reliability acceptance
+
+- File: `apps/desktop/tests/qa/rollback-reliability.test.ts`
+- Workload: batch execution with injected failures + rollback loop
+- Threshold: rollback success rate `> 99%`
+- Output: `test-results/qa/reliability-*.json`
+
+### 3. Decision-model benchmark harness
+
+- File: `apps/desktop/tests/qa/decision-model-benchmark.test.ts`
+- Workload: 13-item Chinese corpus, two-level area/project decomposition against a mock decision endpoint
+- Purpose: exercise the shadow-mode alignment path and summary report structure; the real model accuracy run remains pending model download
+- Output: `test-results/qa/decision-benchmark-*.json`
 
 ## Local Commands
 
-- full QA: `npm run test:qa`
-- perf only: `npm run test:qa:perf`
-- reliability only: `npm run test:qa:reliability`
+- Full QA: `npm run test:qa`
+- Performance only: `npm run test:qa:perf`
+- Reliability only: `npm run test:qa:reliability`
+- Unit + integration gate: `npm run test`
 
 ## CI Policy
 
 1. PR/main policy
-- required gates: `typecheck`, `lint`, `test` (unit+integration), core `e2e`, package smoke
-- QA suite is not mandatory on every PR
+   - Required gates: `typecheck`, `lint`, `test` (unit + integration), core e2e, package smoke
+   - QA suite is not mandatory on every PR
 
 2. Nightly policy
-- workflow job: `qa-nightly`
-- executes full `npm run test:qa`
-- uploads `test-results/qa/*.json`
+   - Workflow job: `qa-nightly`
+   - Executes full `npm run test:qa`
+   - Uploads `test-results/qa/*.json`
 
 3. Pre-release policy
-- workflow job: `qa-pre-release`
-- triggered by release publish or manual workflow dispatch input
-- executes full `npm run test:qa`
-- uploads `test-results/qa/*.json`
+   - Workflow job: `qa-pre-release`
+   - Executes full `npm run test:qa`
+   - Uploads `test-results/qa/*.json`
 
-## Failure Handling
+## Evidence Format
 
-1. If performance threshold fails, inspect test JSON metrics and compare with previous nightly artifact.
-2. If reliability threshold fails, inspect rollback failure details and identify non-compensatable operation patterns.
-3. `qa-pre-release` 目前由 `release: published` 事件或手动 dispatch 触发，即**发布之后**运行；失败时的处置是当日修复并发布修正版或回退 tag。若要作为真正的发布前置门禁，需在发布前手动 dispatch 运行一次并确认通过。
+Record the verified commit SHA, the exact command, and the observed result
+(counts and exit code). A bare `[x]` without these three elements is not
+accepted as verification evidence.

@@ -11,10 +11,7 @@ import {
   createArea,
   createProject
 } from "../../infra/storage/sqlite/repositories/registry-repository.js";
-import {
-  createRuleSqlite,
-  getRuleByIdSqlite
-} from "../../infra/storage/sqlite/repositories/rules-repository.js";
+import { getRuleByIdSqlite } from "../../infra/storage/sqlite/repositories/rules-repository.js";
 import type { ClassificationRule } from "../../shared/types/rules.js";
 
 const tempDirs: string[] = [];
@@ -79,7 +76,29 @@ describe("registry-bootstrap", () => {
     const db = openSqliteDatabase(dbPath);
     await runMigrations({ db, migrationsDir: stagedMigrationsDir });
 
-    createRuleSqlite(db, legacyRule);
+    // Insert with the pre-0004 schema; createRuleSqlite now writes project_id,
+    // which does not exist until the registry migration runs.
+    db.prepare(`
+      INSERT INTO classification_rules (
+        id, purpose, project, ext, path_prefix, keywords_json, negative_keywords_json,
+        priority, enabled, source, hits, created_at, updated_at, last_matched_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      legacyRule.id,
+      legacyRule.purpose,
+      legacyRule.project,
+      legacyRule.matcher.ext ?? null,
+      legacyRule.matcher.pathPrefix ?? null,
+      JSON.stringify(legacyRule.matcher.keywords),
+      JSON.stringify(legacyRule.matcher.negativeKeywords),
+      legacyRule.priority,
+      legacyRule.enabled ? 1 : 0,
+      legacyRule.source,
+      legacyRule.hits,
+      legacyRule.createdAt,
+      legacyRule.updatedAt,
+      legacyRule.lastMatchedAt ?? null
+    );
     const before = getRuleByIdSqlite(db, legacyRule.id);
     expect(before?.project).toBe("P1");
 

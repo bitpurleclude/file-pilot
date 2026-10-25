@@ -18,9 +18,10 @@ This runbook is for operating the in-app update flow backed by GitHub Releases.
 2. Workflow `Release Publish` starts automatically.
 3. Workflow executes:
    - `npm ci`
+   - derive the build version (`<base>-beta.<run>` for beta) and apply it with `npm version --no-git-tag-version`
    - `npm run dist:win`
-   - upload `release/*.exe` to GitHub Release
-4. Confirm release page shows correct tag and installer asset.
+   - upload `release/*.exe` and `release/latest*.yml` to GitHub Release
+4. Confirm release page shows the correct tag, installer asset, and `latest.yml`.
 
 ## Client Update Check Behavior
 
@@ -33,6 +34,13 @@ This runbook is for operating the in-app update flow backed by GitHub Releases.
 - `asset_missing`: release exists but no Windows installer asset
 
 Only `available=true` with `checkStatus=ok` and `downloadUrl` present should enable download.
+
+## Download Integrity
+
+- The client downloads `latest.yml` from the same release and reads the SHA-512 for the selected NSIS installer.
+- The installer is streamed to a `.download` file, hashed, and only renamed into place when the digest matches.
+- A release without `latest.yml` fails closed with `UPDATER_METADATA_MISSING`; a mismatched digest fails with `UPDATER_INTEGRITY_MISMATCH` and the partial file is deleted.
+- Code signing remains disabled in this phase (`forceCodeSigning: false`); the SHA-512 check is the minimum integrity gate.
 
 ## Incident Handling
 
@@ -50,18 +58,22 @@ Only `available=true` with `checkStatus=ok` and `downloadUrl` present should ena
    - `UPDATER_INVALID_RESPONSE`
    - `UPDATER_CHANNEL_NO_RELEASE`
    - `UPDATER_ASSET_MISSING`
+   - `UPDATER_METADATA_MISSING`
+   - `UPDATER_METADATA_INVALID`
+   - `UPDATER_INTEGRITY_MISMATCH`
    - `UPDATER_DOWNLOAD_FAILED`
-2. Confirm asset URL accessibility.
-3. Re-run release workflow if artifact upload failed.
+2. Confirm asset URL accessibility and that `latest.yml` is attached to the release.
+3. If the digest mismatches, do not install; delete the `updates/` cache and re-run the release workflow.
+4. Re-run release workflow if artifact upload failed.
 
 ## Rollback Procedure
 
 1. Stop distribution by editing/removing faulty release assets.
 2. Revert release-causing commit in channel branch.
 3. Publish fixed release:
-   - `beta`: push fix to `beta`
+   - `beta`: push fix to `beta`; the workflow derives a new `v<base>-beta.<run>` build version
    - `master`: bump version, push to `master`
-4. Re-test check/download/install flow on clean client.
+4. Re-test check/download/install flow on clean client, including `latest.yml` verification.
 
 ## 便携版发布注意事项
 

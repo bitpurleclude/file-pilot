@@ -1,11 +1,14 @@
 # File-Pilot
 
 File-Pilot 是一个基于 Electron + React + TypeScript 的桌面文件整理工具。  
-当前代码实现已覆盖 M2 关键能力与规则学习子集（PLAN 定义的完整 M3 范围——去重/搜索/命名规范/回迁提醒——尚未实现）：
+当前代码实现已覆盖 M2 关键能力、规则学习子集与治理层阶段①（registry：去重/坐标解析；M3 其余范围——命名规范/回迁提醒/搜索——尚未实现）：
 
 - 规则优先 + LLM 主备 + 本地兜底的分类管线
 - 低置信度追问（follow-up）
 - 手工修正沉淀为规则（rule learning）
+- 治理层登记册：领域/项目两级坐标、空号认领、三级建域查重、`NEW:` 建域提案
+- 坐标认领管线：LLM 输出枚举校验 + 双轨（coordinated / legacy）落位 + 追问/修正坐标保持
+- 本地决策模型影子模式（默认关闭，仅记录对齐，不下盘）
 - SQLite 持久化与增量迁移
 - 完整测试门禁（unit / integration / e2e / QA）
 
@@ -161,6 +164,7 @@ npm run dist:win
 - 系统：`fp:get-settings` / `fp:save-whitelist` / `fp:get-log-status` / `fp:clear-logs`
 - 日志：`fp:export-logs`
 - 更新：`fp:check-updates` / `fp:download-update` / `fp:install-update`
+- 登记册：`fp:registry-list` / `fp:registry-create-area` / `fp:registry-create-project` / `fp:registry-archive` / `fp:registry-check-duplicate` / `fp:registry-proposals`
 
 协议定义见：`apps/desktop/shared/ipc/contracts.ts`
 

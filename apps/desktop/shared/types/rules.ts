@@ -13,6 +13,8 @@ export interface ClassificationRule {
   id: string;
   purpose: Purpose;
   project: string;
+  /** Registry project association when the rule was learned from a coordinate. */
+  projectId?: string;
   matcher: RuleMatcher;
   priority: number;
   enabled: boolean;
@@ -33,6 +35,7 @@ export interface RuleUpdatePayload {
   enabled?: boolean;
   priority?: number;
   project?: string;
+  projectId?: string;
   purpose?: Purpose;
 }
 

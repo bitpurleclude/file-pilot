@@ -14,7 +14,8 @@
 8. `error-path.spec.ts`：白名单拒绝与 LLM 兜底行为。
 9. `rule-learning.spec.ts`：手工修正沉淀为规则并在下次分析中复用。
 10. `migration.spec.ts`：带迁移路径的启动与正常工作流。
-11. `package-smoke.spec.ts`：打包产物冒烟检查（隔离启动 `cwd` 与打包后 `analyze` 路径）。
+11. `registry-wizard.spec.ts`：登记册容器目录、自动编号、exact 阻断、similar 警告与建域向导 UI。
+12. `package-smoke.spec.ts`：打包产物冒烟检查（隔离启动 `cwd` 与打包后 `analyze` 路径）。
 
 ## Execute
 
@@ -27,13 +28,17 @@ For packaged smoke:
 1. `npm run dist:win`
 2. `FILE_PILOT_RUN_PACKAGED_SMOKE=1 npx playwright test apps/desktop/tests/e2e/package-smoke.spec.ts`
 
-失败诊断由 `playwright.config.ts` 统一提供：`trace: "on-first-retry"`、`screenshot: "only-on-failure"`、HTML 报告输出到 `test-results/e2e-html`（`open: "never"`），CI 中 `retries: 1`。
+失败诊断由 `playwright.config.ts` 统一提供：`trace: "on-first-retry"`、`screenshot: "only-on-failure"`、HTML 报告输出到 `playwright-report/`（`open: "never"`），CI 中 `retries: 1`。
+
+## Hidden window mode
+
+`helpers/electron-launch.ts` 默认通过 `FILE_PILOT_E2E_HIDE_WINDOW=1` 让主进程以 `show: false` 创建窗口，Playwright 仍通过 CDP 驱动页面。因此运行 e2e 时不会在桌面上反复弹出/闪烁窗口。需要肉眼看 UI 调试时，调用 `launchElectronApp({ hideWindow: false })`。
 
 ## 测试隔离
 
 E2E 测试永不触碰真实用户数据：
 
-- `helpers/electron-launch.ts` 在启动 Electron 时自动注入 `FILE_PILOT_USER_DATA_DIR` / `FILE_PILOT_WORKSPACE_ROOT` 两个环境变量，指向按用例创建的临时目录（`mkdtemp`），用例结束后清理。
+- `helpers/electron-launch.ts` 在启动 Electron 时自动注入 `FILE_PILOT_USER_DATA_DIR` / `FILE_PILOT_WORKSPACE_ROOT` 两个环境变量，指向按用例创建的临时目录（`mkdtemp`），用例结束后清理；同时默认注入 `FILE_PILOT_E2E_HIDE_WINDOW=1`，窗口保持隐藏。
 - 应用主进程读取这两个环境变量作为 userData 与工作区根目录，因此 SQLite 数据、settings、logs 均落在临时目录中。
 - 任何测试都不会读写 `%APPDATA%\File Pilot` 下的真实目录，也不会操作真实用户文件；如需扩展启动行为，只改 `helpers/electron-launch.ts`，不要在 spec 内直接拼环境变量。
 

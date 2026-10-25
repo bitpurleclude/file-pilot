@@ -74,6 +74,7 @@ export const ruleHandlers = {
         ...(req.enabled === undefined ? {} : { enabled: req.enabled }),
         ...(req.priority === undefined ? {} : { priority: req.priority }),
         ...(req.project === undefined ? {} : { project: req.project }),
+        ...(req.projectId === undefined ? {} : { projectId: req.projectId }),
         ...(req.purpose === undefined ? {} : { purpose: req.purpose })
       });
 

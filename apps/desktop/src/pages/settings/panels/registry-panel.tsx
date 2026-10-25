@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { DedupEvidence, RegistryProposalDto } from "../../../../shared/ipc/contracts.js";
 import type { RegistryArea, RegistryProject } from "../../../../shared/types/registry.js";
 import { AREA_NUMBER_MAX, AREA_NUMBER_MIN } from "../../../../shared/types/registry.js";
+import { isRegistryNameValid } from "../../../../shared/validation/registry.js";
 import { Button } from "../../../components/ui/button.js";
 import { Input } from "../../../components/ui/input.js";
 import { Label } from "../../../components/ui/label.js";
@@ -35,6 +36,10 @@ const extractEvidence = (details: Record<string, unknown> | undefined): DedupEvi
     && typeof (item as DedupEvidence).matchedKind === "string"
   );
 };
+
+const describeError = (error: unknown): string => (
+  error instanceof Error ? error.message : String(error)
+);
 
 const nextFreeAreaNumber = (areas: RegistryArea[]): number | null => {
   const occupied = new Set(areas.map((area) => area.number));
@@ -101,6 +106,8 @@ export const RegistryPanel = (): JSX.Element => {
           ? current
           : ""
       ));
+    } catch (error) {
+      setError(describeError(error));
     } finally {
       setLoading(false);
     }
@@ -120,16 +127,23 @@ export const RegistryPanel = (): JSX.Element => {
     dedupSeqRef.current = seq;
     setDedup({ scope, evidence: [], checking: true });
 
-    const result = await api.registryCheckDuplicate({ name });
-    if (seq !== dedupSeqRef.current) {
-      return;
+    try {
+      const result = await api.registryCheckDuplicate({ name });
+      if (seq !== dedupSeqRef.current) {
+        return;
+      }
+      if (!result.ok) {
+        setError(result.error.message);
+        setDedup(null);
+        return;
+      }
+      setDedup({ scope, evidence: result.data.evidence, checking: false });
+    } catch (error) {
+      if (seq === dedupSeqRef.current) {
+        setError(describeError(error));
+        setDedup(null);
+      }
     }
-    if (!result.ok) {
-      setError(result.error.message);
-      setDedup(null);
-      return;
-    }
-    setDedup({ scope, evidence: result.data.evidence, checking: false });
   };
 
   const scheduleDedup = (scope: "area" | "project", name: string): void => {
@@ -137,7 +151,7 @@ export const RegistryPanel = (): JSX.Element => {
       clearTimeout(dedupTimerRef.current);
       dedupTimerRef.current = null;
     }
-    if (name.trim().length === 0) {
+    if (!isRegistryNameValid(name)) {
       setDedup(null);
       return;
     }
@@ -153,18 +167,22 @@ export const RegistryPanel = (): JSX.Element => {
       return;
     }
 
-    const result = await api.registryCreateArea({ name });
-    if (!result.ok) {
-      setError(result.error.message);
-      setWarnings(extractEvidence(result.error.details));
-      return;
-    }
+    try {
+      const result = await api.registryCreateArea({ name });
+      if (!result.ok) {
+        setError(result.error.message);
+        setWarnings(extractEvidence(result.error.details));
+        return;
+      }
 
-    setError(null);
-    setWarnings(result.data.warnings);
-    setNewAreaName("");
-    setDedup(null);
-    await load();
+      setError(null);
+      setWarnings(result.data.warnings);
+      setNewAreaName("");
+      setDedup(null);
+      await load();
+    } catch (error) {
+      setError(describeError(error));
+    }
   };
 
   const handleCreateProject = async (): Promise<void> => {
@@ -174,18 +192,22 @@ export const RegistryPanel = (): JSX.Element => {
       return;
     }
 
-    const result = await api.registryCreateProject({ areaId: selectedAreaId, name });
-    if (!result.ok) {
-      setError(result.error.message);
-      setWarnings(extractEvidence(result.error.details));
-      return;
-    }
+    try {
+      const result = await api.registryCreateProject({ areaId: selectedAreaId, name });
+      if (!result.ok) {
+        setError(result.error.message);
+        setWarnings(extractEvidence(result.error.details));
+        return;
+      }
 
-    setError(null);
-    setWarnings(result.data.warnings);
-    setNewProjectName("");
-    setDedup(null);
-    await load();
+      setError(null);
+      setWarnings(result.data.warnings);
+      setNewProjectName("");
+      setDedup(null);
+      await load();
+    } catch (error) {
+      setError(describeError(error));
+    }
   };
 
   const handleArchive = async (kind: "area" | "project", id: string): Promise<void> => {
@@ -194,12 +216,16 @@ export const RegistryPanel = (): JSX.Element => {
       return;
     }
 
-    const result = await api.registryArchive({ kind, id });
-    if (!result.ok) {
-      setError(result.error.message);
-      return;
+    try {
+      const result = await api.registryArchive({ kind, id });
+      if (!result.ok) {
+        setError(result.error.message);
+        return;
+      }
+      await load();
+    } catch (error) {
+      setError(describeError(error));
     }
-    await load();
   };
 
   const handleAcceptProposal = async (proposal: RegistryProposalDto, areaId: string): Promise<void> => {
@@ -208,16 +234,20 @@ export const RegistryPanel = (): JSX.Element => {
       return;
     }
 
-    const result = await api.registryCreateProject({ areaId, name: proposal.proposedName });
-    if (!result.ok) {
-      setError(result.error.message);
-      setWarnings(extractEvidence(result.error.details));
-      return;
-    }
+    try {
+      const result = await api.registryCreateProject({ areaId, name: proposal.proposedName });
+      if (!result.ok) {
+        setError(result.error.message);
+        setWarnings(extractEvidence(result.error.details));
+        return;
+      }
 
-    setError(null);
-    setHiddenProposalIds((current) => [...current, proposal.id]);
-    await load();
+      setError(null);
+      setHiddenProposalIds((current) => [...current, proposal.id]);
+      await load();
+    } catch (error) {
+      setError(describeError(error));
+    }
   };
 
   const handleIgnoreProposal = (proposalId: string): void => {
@@ -239,6 +269,8 @@ export const RegistryPanel = (): JSX.Element => {
   };
 
   const hintNumber = nextFreeAreaNumber(areas);
+  const areaNameValid = isRegistryNameValid(newAreaName);
+  const projectNameValid = isRegistryNameValid(newProjectName);
   const visibleProposals = proposals.filter((proposal) => !hiddenProposalIds.includes(proposal.id));
   const activeAreas = areas.filter((area) => area.status === "active");
   const projectsOf = (area: RegistryArea): RegistryProject[] =>
@@ -342,7 +374,7 @@ export const RegistryPanel = (): JSX.Element => {
         )}
         <Button
           data-testid="registry-create-area"
-          disabled={newAreaName.trim().length === 0 || loading}
+          disabled={!areaNameValid || loading}
           onClick={() => void handleCreateArea()}
         >
           {t("registry.createArea")}
@@ -375,7 +407,7 @@ export const RegistryPanel = (): JSX.Element => {
         />
         <Button
           data-testid="registry-create-project"
-          disabled={selectedAreaId.length === 0 || newProjectName.trim().length === 0 || loading}
+          disabled={selectedAreaId.length === 0 || !projectNameValid || loading}
           onClick={() => void handleCreateProject()}
         >
           {t("registry.createProject")}

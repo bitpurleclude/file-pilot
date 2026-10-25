@@ -2,6 +2,10 @@ import { z } from "zod";
 
 import type { DecisionSource, Purpose } from "../types/workflow.js";
 import type { RegistryArea, RegistryProject } from "../types/registry.js";
+import {
+  isRegistryNameValid,
+  normalizeRegistryName
+} from "../validation/registry.js";
 
 const purposeSchema = z.enum([
   "Documents",
@@ -185,6 +189,7 @@ export const updateRuleRequestSchema = z
     enabled: z.boolean().optional(),
     priority: z.number().int().min(0).optional(),
     project: projectSegmentSchema.optional(),
+    projectId: z.string().uuid().optional(),
     purpose: purposeSchema.optional()
   })
   .superRefine((value, ctx) => {
@@ -192,6 +197,7 @@ export const updateRuleRequestSchema = z
       value.enabled === undefined
       && value.priority === undefined
       && value.project === undefined
+      && value.projectId === undefined
       && value.purpose === undefined
     ) {
       ctx.addIssue({
@@ -265,14 +271,26 @@ export const IPC_CHANNELS = {
 
 export const registryListRequestSchema = z.object({}).default({});
 
+/**
+ * Registry names become directory names, so the IPC boundary rejects path
+ * separators, Windows-illegal characters, reserved device names, and
+ * edge dots/spaces. Names are normalized once here and stored normalized.
+ */
+const registryNameSchema = z
+  .string()
+  .transform((value) => normalizeRegistryName(value))
+  .refine((value) => isRegistryNameValid(value), {
+    message: "registry name contains invalid characters or format"
+  });
+
 export const registryCreateAreaRequestSchema = z.object({
-  name: z.string().min(1).max(64)
+  name: registryNameSchema
 }).strict();
 
 export const registryCreateProjectRequestSchema = z.object({
   areaId: z.string().uuid(),
-  name: z.string().min(1).max(64),
-  aliases: z.array(z.string().min(1)).optional()
+  name: registryNameSchema,
+  aliases: z.array(registryNameSchema).max(20).optional()
 }).strict();
 
 export const registryArchiveRequestSchema = z.object({
@@ -281,7 +299,7 @@ export const registryArchiveRequestSchema = z.object({
 }).strict();
 
 export const registryCheckDuplicateRequestSchema = z.object({
-  name: z.string().min(1).max(64)
+  name: registryNameSchema
 }).strict();
 
 export const registryProposalsRequestSchema = z.object({

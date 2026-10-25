@@ -65,6 +65,12 @@ export interface Classification {
   proposedProject?: string;
 }
 
+/** Coordinate carried by a plan; registry ids are optional for legacy callers. */
+export interface PlacementCoordinate extends CoordinateOption {
+  areaId?: string;
+  projectId?: string;
+}
+
 export interface PlacementPlan {
   fileId: string;
   sourcePath: string;
@@ -72,7 +78,7 @@ export interface PlacementPlan {
   action: ExecuteAction;
   conflictPolicy: ConflictPolicy;
   /** Registry coordinate the item was placed under (coordinated track only). */
-  coordinate?: CoordinateOption;
+  coordinate?: PlacementCoordinate;
   /** True when the target keeps the legacy purpose/project[/time-bucket] layout. */
   uncoordinated?: boolean;
 }

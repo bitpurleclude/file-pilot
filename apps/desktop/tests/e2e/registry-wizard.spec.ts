@@ -29,11 +29,22 @@ const areaRow = (page: Page, label: string) =>
 const projectRow = (page: Page, label: string) =>
   page.locator('[data-testid="registry-project-name"]').filter({ hasText: label });
 
-test("建域向导：自动编号、exact 阻断、similar 警告放行", async () => {
+test("建域向导：容器目录、自动编号、exact 阻断、similar 警告放行", async () => {
   const electronApp = await launchElectronApp();
 
   try {
     const page = await firstWindow(electronApp);
+
+    // 启动即创建保留容器目录（与向导流程共用一次启动，避免重复弹窗）。
+    const workspaceRoot = electronApp.launchDirs.workspaceRoot;
+    for (const container of [
+      REGISTRY_CONFIG.containerInbox,
+      REGISTRY_CONFIG.containerArchive,
+      REGISTRY_CONFIG.containerTemp
+    ]) {
+      expect(existsSync(join(workspaceRoot, container)), `missing container dir: ${container}`).toBe(true);
+    }
+
     await openRegistryTab(page);
 
     // 空态
@@ -67,27 +78,6 @@ test("建域向导：自动编号、exact 阻断、similar 警告放行", async 
     await page.locator('[data-testid="registry-create-area"]').click();
     await expect(areaRow(page, "20-考公资料")).toBeVisible();
     await expect(page.locator('[data-testid="registry-warnings"]')).toContainText("考公");
-  } finally {
-    await electronApp.close();
-  }
-});
-
-test("启动即在工作区创建 00-Inbox / 90-Archive / 99-Temp 容器目录", async () => {
-  const electronApp = await launchElectronApp();
-
-  try {
-    const page = await firstWindow(electronApp);
-    await page.locator('[data-testid="open-settings"]').click();
-    await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
-
-    const workspaceRoot = electronApp.launchDirs.workspaceRoot;
-    for (const container of [
-      REGISTRY_CONFIG.containerInbox,
-      REGISTRY_CONFIG.containerArchive,
-      REGISTRY_CONFIG.containerTemp
-    ]) {
-      expect(existsSync(join(workspaceRoot, container)), `missing container dir: ${container}`).toBe(true);
-    }
   } finally {
     await electronApp.close();
   }

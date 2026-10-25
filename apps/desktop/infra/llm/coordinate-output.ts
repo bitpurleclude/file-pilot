@@ -1,5 +1,9 @@
 import { LLM_CONFIG } from "../../shared/config/llm.config.js";
 import type { CoordinateOption } from "../../shared/types/registry.js";
+import {
+  parseCoordinateClaim,
+  type CoordinateClaim
+} from "../../shared/validation/registry.js";
 
 /**
  * 模型 project 输出校验（governance-design.md §4.3 的机械保证）：
@@ -11,16 +15,10 @@ import type { CoordinateOption } from "../../shared/types/registry.js";
  * CoordinateOption 复用 shared/types/registry.ts 的共享契约（类型导入，零运行时依赖）。
  */
 
-/** 坐标认领串格式：<areaNumber>-<areaName>/<projectNumber>-<projectName>。 */
-const COORDINATE_CLAIM_PATTERN = /^(\d+)-(.+)\/(\d+)-(.+)$/;
-
 /** parseCoordinateClaim 的解析结果（与 CoordinateOption 的坐标四元组同构）。 */
-export interface ParsedCoordinateClaim {
-  areaNumber: number;
-  areaName: string;
-  projectNumber: number;
-  projectName: string;
-}
+export type ParsedCoordinateClaim = CoordinateClaim;
+
+export { parseCoordinateClaim };
 
 /** validateProjectOutput 的判定结果。 */
 export type ProjectOutputVerdict =
@@ -31,30 +29,6 @@ export type ProjectOutputVerdict =
 /** 清洗模型输出中的空白：去首尾空白，内部连续空白折叠为单个空格。 */
 const cleanWhitespace = (value: string): string => {
   return value.trim().replace(/\s+/g, " ");
-};
-
-/**
- * 解析坐标认领串："30-考公/1-行测" → 四元组；无法解析时返回 null。
- * 容忍首尾空白；数字与名称均不做大小写折叠（名称匹配由 isCoordinateInList 精确判定）。
- */
-export const parseCoordinateClaim = (value: string): ParsedCoordinateClaim | null => {
-  const match = COORDINATE_CLAIM_PATTERN.exec(value.trim());
-  if (match === null) {
-    return null;
-  }
-
-  const areaNumber = Number.parseInt(match[1] ?? "", 10);
-  const projectNumber = Number.parseInt(match[3] ?? "", 10);
-  if (Number.isNaN(areaNumber) || Number.isNaN(projectNumber)) {
-    return null;
-  }
-
-  return {
-    areaNumber,
-    areaName: match[2] ?? "",
-    projectNumber,
-    projectName: match[4] ?? ""
-  };
 };
 
 /**
