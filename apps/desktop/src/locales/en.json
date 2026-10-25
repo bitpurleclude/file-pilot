@@ -64,7 +64,8 @@
     "analyze": "Analyze and Plan",
     "dryRun": "Dry-run",
     "rollback": "Rollback",
-    "newSession": "New Session"
+    "newSession": "New Session",
+    "newSessionReady": "New session started; previous results cleared"
   },
   "wizard": {
     "title": "First Run Whitelist Setup ({{step}} / 3)",
@@ -117,9 +118,6 @@
   "settings": {
     "title": "Settings",
     "back": "Back",
-    "save": "Save Settings",
-    "saved": "Settings saved",
-    "saveFailed": "Save settings failed: {{message}}",
     "autoSave": {
       "idle": "Waiting for changes",
       "saving": "Saving...",
@@ -189,7 +187,9 @@
       "title": "Logs",
       "currentSize": "Current Log Size",
       "clearAll": "Clear All Logs",
-      "exportAll": "Export All Logs"
+      "exportAll": "Export All Logs",
+      "working": "Working...",
+      "done": "Done"
     },
     "advanced": {
       "title": "Advanced",

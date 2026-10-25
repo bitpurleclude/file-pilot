@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { mergeAnalyzeData } from "../../src/pages/analyze-state.js";
-import type { AnalyzeData, SessionAnalyzeUpdateData } from "../../src/pages/types.js";
+import type { AnalyzeData, SubmitFollowupData } from "../../src/pages/types.js";
 
 describe("mergeAnalyzeData", () => {
   it("replaces stale analyze state with follow-up/correction response data", () => {
@@ -47,8 +47,9 @@ describe("mergeAnalyzeData", () => {
       ]
     };
 
-    const update: SessionAnalyzeUpdateData = {
+    const update: SubmitFollowupData = {
       sessionId: "session-1",
+      updatedCount: 1,
       needsFollowUp: false,
       followUpQuestions: [],
       items: [

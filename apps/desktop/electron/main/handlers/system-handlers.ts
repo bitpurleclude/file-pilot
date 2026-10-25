@@ -233,11 +233,13 @@ export const systemHandlers = {
     const t = traceId();
     try {
       const req = reportClientErrorRequestSchema.parse(payload);
+      // 渲染层文本直接进日志：压掉控制字符并限长，防日志注入/膨胀。
+      const sanitizeLogText = (value: string): string => value.replace(/[\u0000-\u001f\u007f]+/g, " ").slice(0, 2000);
       await safeWriteLog(context, {
         level: "error",
         category: "error",
-        code: req.code,
-        message: req.message,
+        code: sanitizeLogText(req.code),
+        message: sanitizeLogText(req.message),
         traceId: t,
         ...(req.details === undefined ? {} : { details: req.details })
       });

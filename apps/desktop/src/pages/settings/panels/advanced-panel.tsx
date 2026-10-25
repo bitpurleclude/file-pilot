@@ -12,12 +12,21 @@ interface AdvancedPanelProps {
 
 export const AdvancedPanel = ({
   settings,
-  onChange,
+  onChange
 }: AdvancedPanelProps): JSX.Element => {
   const { t } = useTranslation();
 
-  const handleWhitelistChange = (value: string) => {
-    const directories = value
+  // 本地字符串草稿，失焦/回车时才解析提交：避免防抖保存回写
+  // 在输入中途重写输入框（吃掉尾部未输完的部分）。
+  const joined = settings.whitelistDirectories.join(";");
+  const [draft, setDraft] = React.useState<string>(joined);
+
+  React.useEffect(() => {
+    setDraft(joined);
+  }, [joined]);
+
+  const commit = (): void => {
+    const directories = draft
       .split(";")
       .map((item) => item.trim())
       .filter((item) => item.length > 0);
@@ -33,8 +42,14 @@ export const AdvancedPanel = ({
         <Input
           id="whitelist-dirs"
           placeholder={t("settings.advanced.whitelistPlaceholder")}
-          value={settings.whitelistDirectories.join(";")}
-          onChange={(e) => handleWhitelistChange(e.target.value)}
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          onBlur={commit}
+          onKeyDown={(event) => {
+            if (event.key === "Enter") {
+              commit();
+            }
+          }}
         />
       </div>
     </div>

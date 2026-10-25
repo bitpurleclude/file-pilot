@@ -1,9 +1,12 @@
-import { contextBridge, ipcRenderer } from "electron";
+import { contextBridge, ipcRenderer, webUtils } from "electron";
 
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import type { FilePilotApi } from "./api.js";
 
 const api: FilePilotApi = {
+  // File.path was removed in Electron 32; this is the only supported way for
+  // the renderer to resolve a dropped File to its absolute path.
+  pathForFile: (file) => webUtils.getPathForFile(file),
   analyze: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.analyze, payload),
   apply: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.apply, payload),
   rollback: async (payload) => ipcRenderer.invoke(IPC_CHANNELS.rollback, payload),

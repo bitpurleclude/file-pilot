@@ -11,42 +11,82 @@ interface ClassificationPanelProps {
   onChange: SettingsDraftChange;
 }
 
+interface ThresholdFieldProps {
+  id: string;
+  label: string;
+  value: number;
+  onCommit: (value: number) => void;
+}
+
+/**
+ * 数字阈值输入：本地字符串草稿，失焦/回车时 clamp 到 [0,1] 再提交。
+ * 直接绑定数值会在清空与输入 "0." 时发生受控往返吞字。
+ */
+const ThresholdField = ({ id, label, value, onCommit }: ThresholdFieldProps): JSX.Element => {
+  const [draft, setDraft] = React.useState<string>(String(value));
+
+  React.useEffect(() => {
+    setDraft(String(value));
+  }, [value]);
+
+  const commit = (): void => {
+    const parsed = parseFloat(draft);
+    if (Number.isNaN(parsed)) {
+      setDraft(String(value));
+      return;
+    }
+
+    const clamped = Math.min(1, Math.max(0, parsed));
+    onCommit(clamped);
+    setDraft(String(clamped));
+  };
+
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>{label}</Label>
+      <Input
+        id={id}
+        type="number"
+        step="0.01"
+        min="0"
+        max="1"
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        onBlur={commit}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") {
+            commit();
+          }
+        }}
+      />
+    </div>
+  );
+};
+
 export const ClassificationPanel = ({
   settings,
-  onChange,
+  onChange
 }: ClassificationPanelProps): JSX.Element => {
   const { t } = useTranslation();
 
-const handleChange = (
-    key: keyof AppSettings["classification"],
-    value: number
-  ) => {
-    if (Number.isNaN(value)) {
-      return;
-    }
+  const commitClassification = (key: keyof AppSettings["classification"], value: number): void => {
     onChange({
       ...settings,
       classification: {
         ...settings.classification,
-        [key]: value,
-      },
+        [key]: value
+      }
     }, "debounced");
   };
 
-  const handleRuleLearningChange = (
-    key: keyof AppSettings["ruleLearning"],
-    value: boolean | number
-  ) => {
-    if (typeof value === "number" && Number.isNaN(value)) {
-      return;
-    }
+  const commitRuleLearning = (key: keyof AppSettings["ruleLearning"], value: number): void => {
     onChange({
       ...settings,
       ruleLearning: {
         ...settings.ruleLearning,
-        [key]: value,
-      },
-    }, typeof value === "boolean" ? "immediate" : "debounced");
+        [key]: value
+      }
+    }, "debounced");
   };
 
   return (
@@ -56,54 +96,24 @@ const handleChange = (
           {t("settings.classification.title")}
         </h3>
         <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="highConfidenceMin">
-              {t("settings.classification.highConfidenceMin")}
-            </Label>
-            <Input
-              id="highConfidenceMin"
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              value={settings.classification.highConfidenceMin}
-              onChange={(e) =>
-                handleChange("highConfidenceMin", parseFloat(e.target.value))
-              }
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="mediumConfidenceMin">
-              {t("settings.classification.mediumConfidenceMin")}
-            </Label>
-            <Input
-              id="mediumConfidenceMin"
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              value={settings.classification.mediumConfidenceMin}
-              onChange={(e) =>
-                handleChange("mediumConfidenceMin", parseFloat(e.target.value))
-              }
-            />
-          </div>
-          <div className="grid gap-2">
-            <Label htmlFor="askThreshold">
-              {t("settings.classification.askThreshold")}
-            </Label>
-            <Input
-              id="askThreshold"
-              type="number"
-              step="0.01"
-              min="0"
-              max="1"
-              value={settings.classification.askThreshold}
-              onChange={(e) =>
-                handleChange("askThreshold", parseFloat(e.target.value))
-              }
-            />
-          </div>
+          <ThresholdField
+            id="highConfidenceMin"
+            label={t("settings.classification.highConfidenceMin")}
+            value={settings.classification.highConfidenceMin}
+            onCommit={(value) => commitClassification("highConfidenceMin", value)}
+          />
+          <ThresholdField
+            id="mediumConfidenceMin"
+            label={t("settings.classification.mediumConfidenceMin")}
+            value={settings.classification.mediumConfidenceMin}
+            onCommit={(value) => commitClassification("mediumConfidenceMin", value)}
+          />
+          <ThresholdField
+            id="askThreshold"
+            label={t("settings.classification.askThreshold")}
+            value={settings.classification.askThreshold}
+            onCommit={(value) => commitClassification("askThreshold", value)}
+          />
         </div>
       </div>
 
@@ -116,30 +126,20 @@ const handleChange = (
             id="ruleLearningEnabled"
             checked={settings.ruleLearning.enabled}
             onCheckedChange={(checked) =>
-              handleRuleLearningChange("enabled", checked)
+              onChange({
+                ...settings,
+                ruleLearning: { ...settings.ruleLearning, enabled: checked }
+              }, "immediate")
             }
           />
         </div>
 
-        <div className="grid gap-2">
-          <Label htmlFor="autoApplyThreshold">
-            {t("settings.classification.autoApplyThreshold")}
-          </Label>
-          <Input
-            id="autoApplyThreshold"
-            type="number"
-            step="0.01"
-            min="0"
-            max="1"
-            value={settings.ruleLearning.autoApplyThreshold}
-            onChange={(e) =>
-              handleRuleLearningChange(
-                "autoApplyThreshold",
-                parseFloat(e.target.value)
-              )
-            }
-          />
-        </div>
+        <ThresholdField
+          id="autoApplyThreshold"
+          label={t("settings.classification.autoApplyThreshold")}
+          value={settings.ruleLearning.autoApplyThreshold}
+          onCommit={(value) => commitRuleLearning("autoApplyThreshold", value)}
+        />
       </div>
     </div>
   );

@@ -1,4 +1,3 @@
-import * as React from "react";
 import { useTranslation } from "react-i18next";
 import { Label } from "../../../components/ui/label.js";
 import {

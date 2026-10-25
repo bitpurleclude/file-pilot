@@ -50,14 +50,17 @@ export const SettingsPage = ({
   const [draft, setDraft] = React.useState<AppSettings>(settings);
   const [saveState, setSaveState] = React.useState<SettingsAutosaveState>({ status: "idle" });
   const autosaveRef = React.useRef<SettingsAutosaveController | null>(null);
+  // 回调经 ref 转发：App 重渲染换新引用时不再销毁自动保存控制器，
+  // 否则挂起的防抖修改会被 dispose 静默吞掉。
+  const onSettingsChangeRef = React.useRef(onSettingsChange);
+  onSettingsChangeRef.current = onSettingsChange;
 
   React.useEffect(() => {
     setDraft(settings);
   }, [settings]);
 
   React.useEffect(() => {
-    autosaveRef.current?.dispose();
-    autosaveRef.current = new SettingsAutosaveController({
+    const controller = new SettingsAutosaveController({
       debounceMs: 600,
       save: async (nextSettings) => {
         if (window.filePilotApi === undefined) {
@@ -69,17 +72,19 @@ export const SettingsPage = ({
           throw new Error(result.error.message);
         }
 
-        onSettingsChange(result.data);
+        onSettingsChangeRef.current(result.data);
         setDraft(result.data);
       },
       onStateChange: setSaveState
     });
+    autosaveRef.current = controller;
 
     return () => {
-      autosaveRef.current?.dispose();
       autosaveRef.current = null;
+      // 离开设置页前冲刷挂起的防抖修改，避免静默丢失。
+      void controller.disposeAfterFlush();
     };
-  }, [onSettingsChange]);
+  }, []);
 
   const handleDraftChange: SettingsDraftChange = (nextSettings, mode = "debounced") => {
     setDraft(nextSettings);

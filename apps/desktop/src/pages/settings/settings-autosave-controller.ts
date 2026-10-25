@@ -62,6 +62,33 @@ export class SettingsAutosaveController {
     this.clearTimer();
   }
 
+  /** 冲刷挂起的防抖/排队修改（若有）；进行中的保存由其 finally 继续处理排队项。 */
+  public async flush(): Promise<void> {
+    if (this.isSaving || this.disposed) {
+      return;
+    }
+
+    if (this.timer !== null) {
+      this.clearTimer();
+      if (this.latestSettings !== null) {
+        await this.persist(this.latestSettings);
+      }
+      return;
+    }
+
+    if (this.queued !== null) {
+      const next = this.queued;
+      this.queued = null;
+      await this.persist(next.settings);
+    }
+  }
+
+  /** 冲刷后销毁：供页面卸载时保住最后一批未保存修改。 */
+  public async disposeAfterFlush(): Promise<void> {
+    await this.flush();
+    this.dispose();
+  }
+
   private scheduleImmediate(settings: AppSettings): void {
     if (this.isSaving) {
       this.queued = { settings, mode: "immediate" };

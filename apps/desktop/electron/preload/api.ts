@@ -13,7 +13,7 @@ interface AnalyzeResponseData {
   followUpQuestions: FollowUpQuestion[];
 }
 
-interface SubmitFollowupResponseData {
+export interface SubmitFollowupResponseData {
   sessionId: string;
   updatedCount: number;
   items: ProcessedSessionItem[];
@@ -21,7 +21,7 @@ interface SubmitFollowupResponseData {
   followUpQuestions: FollowUpQuestion[];
 }
 
-interface SaveCorrectionsResponseData {
+export interface SaveCorrectionsResponseData {
   sessionId: string;
   updatedCount: number;
   items: ProcessedSessionItem[];
@@ -31,11 +31,13 @@ interface SaveCorrectionsResponseData {
 }
 
 export interface FilePilotApi {
+  /** 解析拖放 File 对象的绝对路径（Electron 32+ 移除了 File.path 的替代方案）。 */
+  pathForFile(file: File): string;
   analyze(payload: { sessionId: string; filePaths: string[] }): Promise<IpcResult<AnalyzeResponseData>>;
   apply(payload: { sessionId: string; action: "move" | "copy"; dryRun: boolean }): Promise<IpcResult<unknown>>;
   rollback(payload: { sessionId: string }): Promise<IpcResult<unknown>>;
   exportLogs(payload: { anonymize: boolean }): Promise<IpcResult<{ path: string }>>;
-  saveWhitelist(payload: { directories: string[] }): Promise<IpcResult<unknown>>;
+  saveWhitelist(payload: { directories: string[] }): Promise<IpcResult<AppSettings>>;
   setReadOnlyMode(payload: { enabled: boolean }): Promise<IpcResult<AppSettings>>;
   reportClientError(payload: { code: string; message: string; details?: Record<string, unknown> }): Promise<IpcResult<unknown>>;
   checkUpdates(payload?: { channel?: "beta" | "stable" }): Promise<IpcResult<UpdateInfo>>;

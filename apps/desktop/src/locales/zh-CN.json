@@ -64,7 +64,8 @@
     "analyze": "分析并规划",
     "dryRun": "预演",
     "rollback": "回滚",
-    "newSession": "新建会话"
+    "newSession": "新建会话",
+    "newSessionReady": "已开启新会话，旧结果已清空"
   },
   "wizard": {
     "title": "首次运行 - 白名单配置（{{step}} / 3）",
@@ -117,9 +118,6 @@
   "settings": {
     "title": "设置",
     "back": "返回",
-    "save": "保存设置",
-    "saved": "设置已保存",
-    "saveFailed": "保存设置失败：{{message}}",
     "autoSave": {
       "idle": "等待修改",
       "saving": "保存中...",
@@ -189,7 +187,9 @@
       "title": "日志",
       "currentSize": "当前日志大小",
       "clearAll": "清除所有日志",
-      "exportAll": "导出所有日志"
+      "exportAll": "导出所有日志",
+      "working": "处理中...",
+      "done": "操作完成"
     },
     "advanced": {
       "title": "高级",

@@ -71,3 +71,26 @@
 - `npx vitest run --root . apps/desktop/tests/unit apps/desktop/tests/integration` → **27 文件 84 测试全部通过**（修复前 49/52，3 个 EBUSY 失败）
 - `npm run build` → 成功（renderer + electron bundles + 迁移/模板复制）
 - 未执行（如实记录）：`npm run test:e2e`（需 electron 原生重建）、`npm run test:qa`、`npm run dist:win`
+
+## 已知剩余风险（明确不在本次修复范围）
+
+以下项经评估后**刻意保留**或**超出代码修复权限**，按影响排序：
+
+1. **安装包无签名与发布侧校验和**（P1 残余）：本修复仅锁定 GitHub https 下载域；完整供应链验证需要发布流程为每个 release 附 SHA256 校验和文件 + 采购代码签名证书并打开 `signAndEditExecutable`。属基础设施与流程决策。
+2. **发布通道空转**：客户端默认 `channel: "beta"`，但 beta 分支从未创建、master 落后主线——更新检查将恒为 `channel_no_release`。建分支/合分支/推进 master 属发布操作，需维护者决策（当前存在 9 个未收敛的 worktree 分支）。
+3. **日志脱敏仍非完整 PII 方案**：已增强为"路径整串脱敏 + email/常见 API key 令牌子串脱敏"；不含分隔符的用户名、自定义格式标识符仍会原样导出。完整方案需要产品定义敏感数据边界（正则/NER 均不够彻底）。
+4. **置信度语义注水**（产品决策保留）：followup 将置信度拉至 askThreshold、手工纠错拉至 0.95，决策记录中的置信度是合成值。改动会改变规则学习数据口径，需产品拍板。
+5. **`matched-rule:<id>` 字符串协议**：历史决策记录已固化该格式，结构化替换需数据迁移，暂保留。
+6. **`testProviderConnection` 允许 http/内网地址**：本地模型（Ollama 等）是合法用例；桌面威胁模型下不做 SSRF 级限制，接受此风险。
+7. **迁移 runner 无已应用迁移校验和**：被篡改的已应用 .sql 文件不会被发现（新文件会正常应用）。
+8. **settings 并发加载双写**：load 迁移路径可能双写 settings.json，内容幂等，良性。
+9. **白名单内符号链接跟随**：stat/readFile 跟随符号链接，白名单目录内的链接可指向外部；影响读取面，不扩大写入面。
+10. **历史提交的维护交付物缺口**（5 个提交）无法事后诚实补齐，只能自本记录起执行。
+
+## 追加修复（同日第二轮）
+
+- `export-logs.ts` 匿名化增强（见第 3 条边界说明）+ 2 个测试
+- `reportClientError` 渲染层文本压控制字符 + 限长 2000（日志注入防护）
+- 移除 `UPDATER_CONFIG.installPrompt` 死配置
+- 渲染层完整审查（此前缺口）及对应修复
+- 打包/e2e/QA 验证结果（见下方追加验证证据）

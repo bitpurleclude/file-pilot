@@ -52,4 +52,48 @@ describe("export-logs usecase", () => {
     expect(payload.anonymized).toBe(false);
     expect(firstSessionLog.path).toBe("C:/Users/demo/Documents/secret.txt");
   });
+
+  it("redacts email tokens embedded in messages while keeping other text", () => {
+    const payload = buildLogExportPayload(
+      {
+        sessionLogs: [{ message: "user demo@example.com asked about files" }],
+        errorLogs: [],
+        executionLogs: []
+      },
+      createDefaultLogExportOptions(new Date("2026-02-12T10:11:12.000Z"))
+    );
+
+    const firstSessionLog = payload.logs.session_logs[0];
+    if (typeof firstSessionLog !== "object" || firstSessionLog === null || Array.isArray(firstSessionLog)) {
+      throw new Error("unexpected test payload shape");
+    }
+
+    const message = firstSessionLog.message;
+    if (typeof message !== "string") {
+      throw new Error("unexpected message type");
+    }
+
+    expect(message).not.toContain("demo@example.com");
+    expect(message).toMatch(/user \[redacted:[0-9a-f]{12}\] asked about files/);
+  });
+
+  it("redacts common API key tokens", () => {
+    const payload = buildLogExportPayload(
+      {
+        sessionLogs: [{ detail: "provider rejected key sk-abcdef0123456789abcdef" }],
+        errorLogs: [],
+        executionLogs: []
+      },
+      createDefaultLogExportOptions(new Date("2026-02-12T10:11:12.000Z"))
+    );
+
+    const firstSessionLog = payload.logs.session_logs[0];
+    if (typeof firstSessionLog !== "object" || firstSessionLog === null || Array.isArray(firstSessionLog)) {
+      throw new Error("unexpected test payload shape");
+    }
+
+    const detail = JSON.stringify(firstSessionLog);
+    expect(detail).not.toContain("sk-abcdef0123456789abcdef");
+    expect(detail).toMatch(/\[redacted:[0-9a-f]{12}\]/);
+  });
 });

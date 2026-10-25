@@ -44,7 +44,12 @@ export const FirstRunWizard = ({
             onChange={(event) => onWhitelistInputChange(event.target.value)}
           />
           <div className="controls">
-            <button onClick={() => onStepChange(2)}>{t("wizard.next")}</button>
+            <button
+              onClick={() => onStepChange(2)}
+              disabled={whitelistInput.trim().length === 0}
+            >
+              {t("wizard.next")}
+            </button>
             <button onClick={onSkipReadOnly}>{t("wizard.skipReadOnly")}</button>
           </div>
         </>

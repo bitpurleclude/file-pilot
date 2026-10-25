@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type DragEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
 import { useTranslation } from "react-i18next";
 import { Settings } from "lucide-react";
 
@@ -12,7 +12,7 @@ import { ClassificationFeedbackPanel } from "./components/classification-feedbac
 import { FirstRunWizard } from "./components/first-run-wizard.js";
 import { RuleManagementPanel } from "./components/rule-management-panel.js";
 import { SettingsPage } from "./settings/settings-page.js";
-import type { AnalyzeData, SaveCorrectionsData, SubmitFollowupData } from "./types.js";
+import type { AnalyzeData } from "./types.js";
 import { deriveUpdateButtonState, resolveUpdateCheckMessage, type UpdateFlowState } from "./update-controls.js";
 
 const genSessionId = (): string => crypto.randomUUID();
@@ -20,8 +20,9 @@ const genSessionId = (): string => crypto.randomUUID();
 const parseDroppedFiles = (event: DragEvent<HTMLDivElement>): string[] => {
   const items = event.dataTransfer.files;
   return Array.from(items).map((file) => {
-    const maybePath = (file as File & { path?: string }).path;
-    return maybePath ?? file.name;
+    // Electron 32 移除了渲染层 File.path；经 preload 的 webUtils 包装取绝对路径。
+    const maybePath = window.filePilotApi?.pathForFile(file);
+    return maybePath !== undefined && maybePath.length > 0 ? maybePath : file.name;
   });
 };
 
@@ -64,6 +65,13 @@ export const App = (): JSX.Element => {
   const [correctionProject, setCorrectionProject] = useState<string>("Default Project");
   const [saveAsRule, setSaveAsRule] = useState<boolean>(true);
   const [rules, setRules] = useState<ClassificationRule[]>([]);
+  const [actionBusy, setActionBusy] = useState<boolean>(false);
+  const actionBusyRef = useRef<boolean>(false);
+  const updateChannelRef = useRef<"beta" | "stable">("beta");
+  const tRef = useRef(t);
+
+  updateChannelRef.current = updateChannel;
+  tRef.current = t;
 
   const canAnalyze = useMemo(() => filePaths.length > 0 && !readOnlyMode, [filePaths, readOnlyMode]);
   const updateButtonState = useMemo(
@@ -76,11 +84,28 @@ export const App = (): JSX.Element => {
   );
   const firstItemId = analyzeData?.items[0]?.item.id;
 
+  // 会话主链路互斥守卫：双击/并发请求用 ref 防竞态，state 驱动按钮禁用。
+  const runExclusive = async (action: () => Promise<void>): Promise<void> => {
+    if (actionBusyRef.current) {
+      return;
+    }
+
+    actionBusyRef.current = true;
+    setActionBusy(true);
+    try {
+      await action();
+    } finally {
+      actionBusyRef.current = false;
+      setActionBusy(false);
+    }
+  };
+
   useEffect(() => {
     setMessage(t("app.dropMessage"));
   }, [t]);
 
   useEffect(() => {
+    // 仅在挂载时引导一次：文案经 tRef 取值，避免语言切换重跑本流程。
     const bootstrap = async (): Promise<void> => {
       if (window.filePilotApi === undefined) {
         return;
@@ -90,7 +115,6 @@ export const App = (): JSX.Element => {
       if (settingsResult.ok) {
         setAppSettings(settingsResult.data);
         setReadOnlyMode(settingsResult.data.readOnlyMode);
-        setReadOnlyMode(settingsResult.data.readOnlyMode);
 
         if (settingsResult.data.language !== undefined) {
           void i18n.changeLanguage(settingsResult.data.language);
@@ -99,9 +123,9 @@ export const App = (): JSX.Element => {
         if (settingsResult.data.whitelistDirectories.length === 0) {
           if (!settingsResult.data.readOnlyMode) {
             setWizardVisible(true);
-            setMessage(t("app.firstRunDetected"));
+            setMessage(tRef.current("app.firstRunDetected"));
           } else {
-            setMessage(t("app.readOnlyLater"));
+            setMessage(tRef.current("app.readOnlyLater"));
           }
         } else {
           setWhitelistInput(settingsResult.data.whitelistDirectories.join(";"));
@@ -115,7 +139,7 @@ export const App = (): JSX.Element => {
     };
 
     void bootstrap();
-  }, [i18n, t]);
+  }, [i18n]);
 
   const onDrop = (event: DragEvent<HTMLDivElement>): void => {
     event.preventDefault();
@@ -123,7 +147,7 @@ export const App = (): JSX.Element => {
     setMessage(t("app.filesReceived"));
   };
 
-  const onAnalyze = async (): Promise<void> => {
+  const onAnalyze = (): Promise<void> => runExclusive(async () => {
     if (window.filePilotApi === undefined) {
       setMessage(t("app.ipcNotReady"));
       return;
@@ -143,9 +167,9 @@ export const App = (): JSX.Element => {
     setAnalyzeData(result.data);
     const data = result.data;
     setMessage(data.needsFollowUp ? t("app.analyzeCompletedFollowup") : t("app.analyzeCompleted"));
-  };
+  });
 
-  const onSubmitFollowup = async (): Promise<void> => {
+  const onSubmitFollowup = (): Promise<void> => runExclusive(async () => {
     if (window.filePilotApi === undefined || analyzeData === null) {
       return;
     }
@@ -161,12 +185,12 @@ export const App = (): JSX.Element => {
       return;
     }
 
-    const data = result.data as SubmitFollowupData;
+    const data = result.data;
     setAnalyzeData((current) => mergeAnalyzeData(current, data));
     setMessage(data.needsFollowUp ? t("app.followupAppliedPending") : t("app.followupApplied"));
-  };
+  });
 
-  const onSaveCorrection = async (): Promise<void> => {
+  const onSaveCorrection = (): Promise<void> => runExclusive(async () => {
     if (window.filePilotApi === undefined || analyzeData === null || firstItemId === undefined) {
       return;
     }
@@ -184,7 +208,7 @@ export const App = (): JSX.Element => {
       return;
     }
 
-    const data = result.data as SaveCorrectionsData;
+    const data = result.data;
     setAnalyzeData((current) => mergeAnalyzeData(current, data));
     if (data.rule !== undefined) {
       const createdRule = data.rule;
@@ -199,7 +223,7 @@ export const App = (): JSX.Element => {
     }
 
     setMessage(saveAsRule ? t("app.correctionSavedRule") : t("app.correctionSaved"));
-  };
+  });
 
   const onListRules = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
@@ -252,8 +276,11 @@ export const App = (): JSX.Element => {
 
     const result = await window.filePilotApi.saveWhitelist({ directories });
     if (result.ok) {
-      setReadOnlyMode(false);
+      // 以主进程返回的（脱敏）settings 为唯一事实来源，防止旧快照
+      // 经设置页自动保存把白名单/只读状态整体写回覆盖。
+      handleSettingsChange(result.data);
       setWizardVisible(false);
+      setWizardStep(1);
       setMessage(t("app.whitelistSaved"));
       return;
     }
@@ -292,7 +319,7 @@ export const App = (): JSX.Element => {
       return;
     }
 
-    setReadOnlyMode(true);
+    handleSettingsChange(result.data);
     setWizardVisible(false);
     setMessage(t("app.readOnlyEnabled"));
   };
@@ -309,7 +336,7 @@ export const App = (): JSX.Element => {
     }
   };
 
-  const onApplyDryRun = async (): Promise<void> => {
+  const onApplyDryRun = (): Promise<void> => runExclusive(async () => {
     if (window.filePilotApi === undefined) {
       return;
     }
@@ -321,9 +348,9 @@ export const App = (): JSX.Element => {
 
     const result = await window.filePilotApi.apply({ sessionId, action: "move", dryRun: true });
     setMessage(result.ok ? t("app.dryRunCompleted") : t("app.dryRunFailed", { message: result.error.message }));
-  };
+  });
 
-  const onRollback = async (): Promise<void> => {
+  const onRollback = (): Promise<void> => runExclusive(async () => {
     if (window.filePilotApi === undefined) {
       return;
     }
@@ -335,7 +362,7 @@ export const App = (): JSX.Element => {
 
     const result = await window.filePilotApi.rollback({ sessionId });
     setMessage(result.ok ? t("app.rollbackCompleted") : t("app.rollbackFailed", { message: result.error.message }));
-  };
+  });
 
   const onExportLogs = async (): Promise<void> => {
     if (window.filePilotApi === undefined) {
@@ -359,10 +386,15 @@ export const App = (): JSX.Element => {
       return;
     }
 
+    const requestChannel = updateChannel;
     setUpdateFlowState("checking");
     setMessage(t("app.checkingUpdates"));
-    const result = await window.filePilotApi.checkUpdates({ channel: updateChannel });
+    const result = await window.filePilotApi.checkUpdates({ channel: requestChannel });
     setUpdateFlowState("idle");
+    if (updateChannelRef.current !== requestChannel) {
+      return; // 用户在请求期间切换了通道，丢弃过期结果
+    }
+
     if (!result.ok) {
       setMessage(t("app.checkUpdatesFailed", { message: result.error.message }));
       return;
@@ -387,10 +419,15 @@ export const App = (): JSX.Element => {
       return;
     }
 
+    const requestChannel = updateChannel;
     setUpdateFlowState("downloading");
     setMessage(t("app.downloadingUpdate"));
-    const result = await window.filePilotApi.downloadUpdate({ channel: updateChannel });
+    const result = await window.filePilotApi.downloadUpdate({ channel: requestChannel });
     setUpdateFlowState("idle");
+    if (updateChannelRef.current !== requestChannel) {
+      return; // 通道已切换：旧通道的安装包不可作为当前通道的安装来源
+    }
+
     if (!result.ok) {
       setMessage(t("app.downloadUpdateFailed", { message: `${result.error.code}: ${result.error.message}` }));
       return;
@@ -486,13 +523,13 @@ export const App = (): JSX.Element => {
       </div>
 
       <div className="controls">
-        <button onClick={onAnalyze} disabled={!canAnalyze}>
+        <button onClick={onAnalyze} disabled={!canAnalyze || actionBusy}>
           {t("actions.analyze")}
         </button>
-        <button onClick={onApplyDryRun} disabled={readOnlyMode}>
+        <button onClick={onApplyDryRun} disabled={readOnlyMode || actionBusy}>
           {t("actions.dryRun")}
         </button>
-        <button onClick={onRollback} disabled={readOnlyMode}>
+        <button onClick={onRollback} disabled={readOnlyMode || actionBusy}>
           {t("actions.rollback")}
         </button>
       </div>
@@ -526,6 +563,7 @@ export const App = (): JSX.Element => {
             id="update-channel"
             name="updateChannel"
             value={updateChannel}
+            disabled={updateFlowState !== "idle"}
             onChange={(event) => onUpdateChannelChange(event.target.value as "beta" | "stable")}
           >
             <option value="beta">{t("updates.beta")}</option>
@@ -548,7 +586,12 @@ export const App = (): JSX.Element => {
         <button onClick={onCheckUpdates} disabled={!updateButtonState.canCheck}>{t("updates.check")}</button>
         <button onClick={onDownloadUpdate} disabled={!updateButtonState.canDownload}>{t("updates.download")}</button>
         <button onClick={onInstallUpdate} disabled={!updateButtonState.canInstall}>{t("updates.install")}</button>
-        <button onClick={() => setSessionId(genSessionId())}>{t("actions.newSession")}</button>
+        <button onClick={() => {
+          setSessionId(genSessionId());
+          setAnalyzeData(null);
+          setFilePaths([]);
+          setMessage(t("app.newSessionReady"));
+        }}>{t("actions.newSession")}</button>
       </div>
 
       {logStatus !== null && (
@@ -565,8 +608,6 @@ export const App = (): JSX.Element => {
           {downloadedInstallerPath === null ? ` ${t("status.notDownloaded")}` : ` ${t("status.downloaded")}`}
         </p>
       )}
-
-      <pre>{JSON.stringify({ sessionId, filePaths, analyzeData }, null, 2)}</pre>
     </main>
   );
 };

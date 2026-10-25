@@ -9,13 +9,32 @@ interface LogsPanelProps {
   onRefreshLogStatus: () => Promise<void>;
 }
 
+type LogsAction = "refresh" | "export" | "clear";
+
 export const LogsPanel = ({
   logStatus,
   onClearLogs,
   onExportLogs,
-  onRefreshLogStatus,
+  onRefreshLogStatus
 }: LogsPanelProps): JSX.Element => {
   const { t } = useTranslation();
+  const [busy, setBusy] = React.useState<LogsAction | null>(null);
+  const [statusText, setStatusText] = React.useState<string>("");
+
+  const run = async (action: LogsAction, task: () => Promise<void>): Promise<void> => {
+    if (busy !== null) {
+      return;
+    }
+
+    setBusy(action);
+    setStatusText(t("settings.logsSettings.working"));
+    try {
+      await task();
+      setStatusText(t("settings.logsSettings.done"));
+    } finally {
+      setBusy(null);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -33,17 +52,33 @@ export const LogsPanel = ({
         )}
       </div>
 
-      <div className="flex gap-2">
-        <Button variant="outline" onClick={onRefreshLogStatus}>
+      <div className="flex items-center gap-2">
+        <Button
+          variant="outline"
+          disabled={busy !== null}
+          onClick={() => void run("refresh", onRefreshLogStatus)}
+        >
           {t("logs.refreshStatus")}
         </Button>
-        <Button variant="outline" onClick={onExportLogs}>
+        <Button
+          variant="outline"
+          disabled={busy !== null}
+          onClick={() => void run("export", onExportLogs)}
+        >
           {t("settings.logsSettings.exportAll")}
         </Button>
-        <Button variant="destructive" onClick={onClearLogs}>
+        <Button
+          variant="destructive"
+          disabled={busy !== null}
+          onClick={() => void run("clear", onClearLogs)}
+        >
           {t("settings.logsSettings.clearAll")}
         </Button>
       </div>
+
+      {statusText.length > 0 && (
+        <p className="text-sm text-muted-foreground">{statusText}</p>
+      )}
     </div>
   );
 };
