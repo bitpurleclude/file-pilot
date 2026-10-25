@@ -1,42 +1,13 @@
-import { app, BrowserWindow, ipcMain, safeStorage } from "electron";
+import { app, BrowserWindow, ipcMain } from "electron";
 import { join } from "node:path";
 
 import { writeLogRecord } from "../../infra/logging/file-logger.js";
-import {
-  createMachineBoundCodec,
-  ENCRYPTED_KEY_PREFIX,
-  type ProviderKeyCodec
-} from "../../infra/security/provider-key-codec.js";
 import { bootstrapSqliteStorage } from "../../infra/storage/sqlite/bootstrap.js";
 import { closeAllSqliteDatabases } from "../../infra/storage/sqlite/db.js";
 import { checkForUpdates } from "../../infra/updater/check-updates.js";
 import { UPDATER_CONFIG } from "../../shared/config/updater.config.js";
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 import { handlers, type HandlerContext } from "./handler-registry.js";
-
-const SAFE_STORAGE_PREFIX = `${ENCRYPTED_KEY_PREFIX}ss:`;
-
-/** safeStorage 优先的 key 编解码器；不可用时回退机器绑定 AES-GCM。 */
-const createProviderKeyCodec = (): ProviderKeyCodec => {
-  if (safeStorage.isEncryptionAvailable()) {
-    return {
-      encrypt: (plain) => `${SAFE_STORAGE_PREFIX}${safeStorage.encryptString(plain).toString("base64")}`,
-      decrypt: (stored) => {
-        if (!stored.startsWith(SAFE_STORAGE_PREFIX)) {
-          return stored;
-        }
-
-        try {
-          return safeStorage.decryptString(Buffer.from(stored.slice(SAFE_STORAGE_PREFIX.length), "base64"));
-        } catch {
-          return null;
-        }
-      }
-    };
-  }
-
-  return createMachineBoundCodec();
-};
 
 let mainWindow: BrowserWindow | null = null;
 
@@ -97,8 +68,7 @@ const context: HandlerContext = {
   appDataRoot,
   workspaceRoot,
   appVersion: app.getVersion(),
-  quitApp: () => app.quit(),
-  keyCodec: createProviderKeyCodec()
+  quitApp: () => app.quit()
 };
 
 const safeWriteMainLog = async (params: Parameters<typeof writeLogRecord>[1]): Promise<void> => {

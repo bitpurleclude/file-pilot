@@ -2,7 +2,9 @@ import { isAbsolute, join, relative } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { buildPlacementPlan, sanitizeProjectSegment } from "../../core/usecases/plan-placement.js";
+import { buildPlacementPlan, sanitizePathSegment } from "../../core/usecases/plan-placement.js";
+
+const sanitizePathSegmentWithDefault = (value: string): string => sanitizePathSegment(value, "默认项目");
 import type { Classification } from "../../shared/types/workflow.js";
 
 const classification = (project: string): Classification => ({
@@ -12,20 +14,20 @@ const classification = (project: string): Classification => ({
   reasons: []
 });
 
-describe("sanitizeProjectSegment", () => {
+describe("sanitizePathSegment", () => {
   it("strips path separators and Windows-illegal characters", () => {
-    expect(sanitizeProjectSegment("..\\..\\Startup")).not.toMatch(/[\\/:*?"<>|]/);
-    expect(sanitizeProjectSegment("a/b/c")).not.toContain("/");
+    expect(sanitizePathSegmentWithDefault("..\\..\\Startup")).not.toMatch(/[\\/:*?"<>|]/);
+    expect(sanitizePathSegmentWithDefault("a/b/c")).not.toContain("/");
   });
 
-  it("neutralizes dot-dot sequences", () => {
-    expect(sanitizeProjectSegment("..")).not.toBe("..");
-    expect(sanitizeProjectSegment("a..b")).not.toContain("..");
+  it("neutralizes traversal-only segments and Windows reserved names", () => {
+    expect(sanitizePathSegmentWithDefault("..")).toBe("默认项目");
+    expect(sanitizePathSegmentWithDefault("CON")).toBe("默认项目");
   });
 
   it("falls back to a safe default for empty results", () => {
-    expect(sanitizeProjectSegment("///")).toBe("默认项目");
-    expect(sanitizeProjectSegment(" . ")).toBe("默认项目");
+    expect(sanitizePathSegmentWithDefault("///")).toBe("默认项目");
+    expect(sanitizePathSegmentWithDefault(" . ")).toBe("默认项目");
   });
 });
 

@@ -20,8 +20,9 @@ const genSessionId = (): string => crypto.randomUUID();
 const parseDroppedFiles = (event: DragEvent<HTMLDivElement>): string[] => {
   const items = event.dataTransfer.files;
   return Array.from(items).map((file) => {
-    const maybePath = (file as File & { path?: string }).path;
-    return maybePath ?? file.name;
+    // Electron 32 移除了渲染层 File.path；经 preload 的 webUtils 包装取绝对路径。
+    const maybePath = window.filePilotApi?.pathForFile(file);
+    return maybePath !== undefined && maybePath.length > 0 ? maybePath : file.name;
   });
 };
 
@@ -438,7 +439,7 @@ export const App = (): JSX.Element => {
 
     setUpdateFlowState("installing");
     setMessage(t("app.installingUpdate"));
-    const result = await window.filePilotApi.installUpdate({ installerPath: downloadedInstallerPath });
+    const result = await window.filePilotApi.installUpdate();
     setUpdateFlowState("idle");
     if (!result.ok) {
       setMessage(t("app.installUpdateFailed", { message: `${result.error.code}: ${result.error.message}` }));

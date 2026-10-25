@@ -4,8 +4,6 @@ import {
   listLogRecords,
   writeLogRecord
 } from "../../../infra/logging/file-logger.js";
-import { PLAINTEXT_CODEC, type ProviderKeyCodec } from "../../../infra/security/provider-key-codec.js";
-import { loadSettings } from "../../../infra/storage/settings-repository.js";
 import { openSqliteDatabase } from "../../../infra/storage/sqlite/db.js";
 import { appendLogIndexRecordSqlite } from "../../../infra/storage/sqlite/repositories/log-index-repository.js";
 import { incrementRuleHitSqlite } from "../../../infra/storage/sqlite/repositories/rules-repository.js";
@@ -21,17 +19,7 @@ export interface HandlerContext {
   workspaceRoot: string;
   appVersion: string;
   quitApp: () => void;
-  /** 主进程装配的 key 编解码器（safeStorage 优先）；缺省为透传（测试用）。 */
-  keyCodec?: ProviderKeyCodec;
 }
-
-export const resolveKeyCodec = (context: HandlerContext): ProviderKeyCodec => {
-  return context.keyCodec ?? PLAINTEXT_CODEC;
-};
-
-export const loadSettingsWithContext = async (context: HandlerContext): Promise<AppSettings> => {
-  return loadSettings(settingsRootPath(context), { codec: resolveKeyCodec(context) });
-};
 
 export const settingsRootPath = (context: HandlerContext): string => join(context.appDataRoot, "settings");
 export const logRootPath = (context: HandlerContext): string => join(context.appDataRoot, "logs");

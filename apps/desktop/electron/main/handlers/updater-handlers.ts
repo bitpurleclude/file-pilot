@@ -18,6 +18,18 @@ import {
   updaterRootPath
 } from "./shared.js";
 
+interface TrackedInstaller {
+  path: string;
+  version: string;
+  downloadedAt: number;
+}
+
+/**
+ * The only installer the app will ever spawn: recorded main-side by
+ * downloadUpdate. The renderer cannot name an arbitrary executable.
+ */
+let trackedInstaller: TrackedInstaller | null = null;
+
 export const updaterHandlers = {
   checkUpdates: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<UpdateInfo>> => {
     const t = traceId();
@@ -63,10 +75,21 @@ export const updaterHandlers = {
     const t = traceId();
     try {
       const req = downloadUpdateRequestSchema.parse(payload);
+      const downloadRoot = updaterRootPath(context);
       const downloaded = await downloadLatestInstaller({
-        downloadRoot: updaterRootPath(context),
+        downloadRoot,
         ...(req.channel === undefined ? {} : { channel: req.channel })
       });
+
+      if (!isPathInsideRoot(downloaded.installerPath, downloadRoot)) {
+        throw new AppError("UPDATER_DOWNLOAD_PATH_INVALID", "installer path escaped the updates directory", "SYSTEM");
+      }
+
+      trackedInstaller = {
+        path: downloaded.installerPath,
+        version: downloaded.version,
+        downloadedAt: Date.now()
+      };
 
       await safeWriteLog(context, {
         level: "info",
@@ -100,21 +123,28 @@ export const updaterHandlers = {
   installUpdate: async (context: HandlerContext, payload: UnknownPayload): Promise<IpcResult<unknown>> => {
     const t = traceId();
     try {
-      const req = installUpdateRequestSchema.parse(payload);
+      installUpdateRequestSchema.parse(payload);
+
+      if (trackedInstaller === null) {
+        throw new AppError("UPDATER_NO_DOWNLOADED_INSTALLER", "请先下载更新安装包", "USER");
+      }
+
+      const installerPath = trackedInstaller.path;
       const updaterRoot = updaterRootPath(context);
-      if (!isPathInsideRoot(req.installerPath, updaterRoot) || !existsSync(req.installerPath)) {
+      if (!isPathInsideRoot(installerPath, updaterRoot) || !existsSync(installerPath)) {
+        // Defense in depth: the tracked path itself must stay valid.
         throw new AppError(
           "UPDATER_INSTALL_BLOCKED",
           "Installer path must exist inside the managed updates directory",
           "USER",
           {
-            installerPath: req.installerPath,
+            installerPath,
             updaterRoot
           }
         );
       }
 
-      await launchInstaller(req.installerPath);
+      await launchInstaller(installerPath);
 
       await safeWriteLog(context, {
         level: "warn",
@@ -123,7 +153,8 @@ export const updaterHandlers = {
         message: "installer launched and app will quit",
         traceId: t,
         details: {
-          installerPath: req.installerPath
+          installerPath,
+          version: trackedInstaller.version
         }
       });
 
