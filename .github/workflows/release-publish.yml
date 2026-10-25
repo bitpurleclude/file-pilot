@@ -59,9 +59,13 @@ jobs:
             $channel = "stable"
             $prerelease = "false"
 
-            git ls-remote --exit-code --tags origin "refs/tags/$tag" *> $null
+            $tagCheck = & git ls-remote --exit-code --tags origin "refs/tags/$tag" 2>&1
+            Write-Host "tag-check: tag=$tag exit=$LASTEXITCODE matches=[$($tagCheck -join '; ')]"
             if ($LASTEXITCODE -eq 0) {
               throw "Stable tag $tag already exists. Bump package.json version before merging to master."
+            }
+            if ($LASTEXITCODE -ne 2) {
+              throw "Tag existence check failed unexpectedly (exit=$LASTEXITCODE): $($tagCheck -join '; ')"
             }
           } else {
             throw "Unsupported release branch: $branch"

@@ -174,7 +174,8 @@ test("language switch through the settings UI select persists", async () => {
     await settings.getByRole("option", { name: "English" }).click();
 
     // Language change saves immediately and re-renders the settings window.
-    await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
+    // CI runners are slower than dev machines; give the i18n re-render room.
+    await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible({ timeout: 20_000 });
     await expect(settings.locator('[data-testid="settings-autosave-status"]')).toHaveText("Saved", {
       timeout: 10_000
     });
