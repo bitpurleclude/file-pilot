@@ -168,6 +168,12 @@ test("language switch through the settings UI select persists", async () => {
   try {
     const popover = await firstWindow(firstApp);
     const settings = await openSettings(firstApp, popover);
+    settings.on("pageerror", (error) => console.log("SETTINGS_PAGEERROR", String(error)));
+    settings.on("console", (message) => {
+      if (message.type() === "error") {
+        console.log("SETTINGS_CONSOLE_ERR", message.text());
+      }
+    });
 
     // The General tab hosts the language select (the only combobox there).
     // Mouse-driven option clicks proved unreliable on CI runners (the
