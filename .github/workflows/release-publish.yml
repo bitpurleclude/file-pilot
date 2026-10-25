@@ -33,50 +33,61 @@ jobs:
         id: meta
         shell: pwsh
         run: |
-          $branch = "${{ github.ref_name }}"
-          $version = (Get-Content package.json | ConvertFrom-Json).version
-          if ([string]::IsNullOrWhiteSpace($version)) {
-            throw "package.json version is empty"
+          try {
+            $ErrorActionPreference = "Stop"
+            $branch = "${{ github.ref_name }}"
+            $version = (Get-Content package.json -Raw | ConvertFrom-Json).version
+            if ([string]::IsNullOrWhiteSpace($version)) {
+              throw "package.json version is empty"
+            }
+
+            # The application reports package.json version at runtime, so the
+            # built version must equal the release tag's version. Beta builds
+            # therefore carry the prerelease suffix in package.json itself;
+            # otherwise a 0.1.0 build can never see v0.1.0-beta.N updates.
+            $baseVersion = ($version -split '-', 2)[0]
+
+            if ($branch -eq "beta") {
+              $buildVersion = "$baseVersion-beta.${{ github.run_number }}"
+              $tag = "v$buildVersion"
+              $channel = "beta"
+              $prerelease = "true"
+            } elseif ($branch -eq "master") {
+              if ($version -match '-') {
+                throw "Stable releases require a version without a prerelease suffix (found $version)."
+              }
+              $buildVersion = $version
+              $tag = "v$version"
+              $channel = "stable"
+              $prerelease = "false"
+
+              # Existence via output text: no --exit-code/LASTEXITCODE semantics.
+              $existing = (git ls-remote --tags origin "refs/tags/$tag") | Out-String
+              $tagExists = $existing.Trim().Length -gt 0
+              Write-Host "tag-check: tag=$tag exists=$tagExists raw=[$($existing.Trim())]"
+              if ($tagExists) {
+                throw "Stable tag $tag already exists. Bump package.json version before merging to master."
+              }
+            } else {
+              throw "Unsupported release branch: $branch"
+            }
+
+            $outFile = $env:GITHUB_OUTPUT
+            if ([string]::IsNullOrWhiteSpace($outFile)) {
+              throw "GITHUB_OUTPUT is not set by the runner."
+            }
+            Add-Content -Path $outFile -Value "version=$version"
+            Add-Content -Path $outFile -Value "build_version=$buildVersion"
+            Add-Content -Path $outFile -Value "tag=$tag"
+            Add-Content -Path $outFile -Value "channel=$channel"
+            Add-Content -Path $outFile -Value "prerelease=$prerelease"
+            Add-Content -Path $outFile -Value "release_name=File Pilot $tag"
+            Write-Host "meta ok: tag=$tag channel=$channel"
+          } catch {
+            Write-Host "META_FAILED: $($_.Exception.Message)"
+            Write-Host $_.ScriptStackTrace
+            exit 1
           }
-
-          # The application reports package.json version at runtime, so the
-          # built version must equal the release tag's version. Beta builds
-          # therefore carry the prerelease suffix in package.json itself;
-          # otherwise a 0.1.0 build can never see v0.1.0-beta.N updates.
-          $baseVersion = ($version -split '-', 2)[0]
-
-          if ($branch -eq "beta") {
-            $buildVersion = "$baseVersion-beta.${{ github.run_number }}"
-            $tag = "v$buildVersion"
-            $channel = "beta"
-            $prerelease = "true"
-          } elseif ($branch -eq "master") {
-            if ($version -match '-') {
-              throw "Stable releases require a version without a prerelease suffix (found $version)."
-            }
-            $buildVersion = $version
-            $tag = "v$version"
-            $channel = "stable"
-            $prerelease = "false"
-
-            $tagCheck = & git ls-remote --exit-code --tags origin "refs/tags/$tag" 2>&1
-            Write-Host "tag-check: tag=$tag exit=$LASTEXITCODE matches=[$($tagCheck -join '; ')]"
-            if ($LASTEXITCODE -eq 0) {
-              throw "Stable tag $tag already exists. Bump package.json version before merging to master."
-            }
-            if ($LASTEXITCODE -ne 2) {
-              throw "Tag existence check failed unexpectedly (exit=$LASTEXITCODE): $($tagCheck -join '; ')"
-            }
-          } else {
-            throw "Unsupported release branch: $branch"
-          }
-
-          "version=$version" >> $env:GITHUB_OUTPUT
-          "build_version=$buildVersion" >> $env:GITHUB_OUTPUT
-          "tag=$tag" >> $env:GITHUB_OUTPUT
-          "channel=$channel" >> $env:GITHUB_OUTPUT
-          "prerelease=$prerelease" >> $env:GITHUB_OUTPUT
-          "release_name=File Pilot $tag" >> $env:GITHUB_OUTPUT
 
       - name: Install dependencies
         run: npm ci
