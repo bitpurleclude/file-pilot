@@ -60,3 +60,12 @@
 - **稳定版 v0.1.0 已发布**（NSIS Setup + Portable + latest.yml，未签名）。
 - E2E Core：`language switch through the settings UI select persists` 在 CI 确定性失败（鼠标与键盘两种驱动均不生效；无 pageerror/console error；本地恒过；API 版持久化用例在 CI 绿）。已标记 CI-only skip 并注明原因，**根因跟进待办**。
 - 后续：beta 分支推送 → v0.1.0-beta.N 预发布，点亮客户端默认 beta 通道（更新器只会选择 NSIS Setup 资产，已验证排除 portable）。
+
+## 追加：发布管线终态（同日）
+
+- **CI Gates 在 master 全绿**（语言切换 UI 用例 CI-skip 后；API 版持久化用例仍在 CI 覆盖）。
+- **稳定版 v0.1.0 已发布**：NSIS Setup + Portable + latest.yml（未签名）。
+- **beta 通道已点亮**：推送 beta 分支 → Release Publish 成功。注意：工作流文件 2 月后被重建导致 run_number 重置，本次 beta tag 恰为 v0.1.0-beta.7，产物上传进了二月的同名 release（版本一致，内容已更新为收敛构建）。后续 beta 发布 tag 将正常递增（beta.8+）。
+- 遗留小项：beta.7 release 里混入两个稳定版命名的残留资产（早期失败运行上传；PAT 无删除权限未清理，需在 GitHub UI 手动删除 `File.Pilot.Setup.0.1.0.exe` 与 `.blockmap`）；更新器资产选择器不受影响（优先 beta 命名的 Setup）。
+- master 重复推送会被稳定 tag 守卫按设计拒绝（版本未 bump 时）——下次 master 功能合并需先 bump package.json 版本。
+- CI-only 的 radix Select 交互失败为未结根因（证据链见 test skip 注释与上节）。
