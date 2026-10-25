@@ -8,6 +8,8 @@ const sqliteMigrationsSourceDir = join(repoRoot, "apps", "desktop", "infra", "st
 const sqliteMigrationsOutputDir = join(repoRoot, "dist", "electron", "migrations");
 const llmTemplateSourceDir = join(repoRoot, "apps", "desktop", "infra", "llm", "templates");
 const llmTemplateOutputDir = join(repoRoot, "dist", "electron", "templates");
+const electronAssetsSourceDir = join(repoRoot, "apps", "desktop", "electron", "assets");
+const electronAssetsOutputDir = join(repoRoot, "dist", "electron", "assets");
 
 const copyFilesByExtension = (inputDir, outputDir, extension) => {
   mkdirSync(outputDir, { recursive: true });
@@ -23,3 +25,4 @@ const copyFilesByExtension = (inputDir, outputDir, extension) => {
 
 copyFilesByExtension(sqliteMigrationsSourceDir, sqliteMigrationsOutputDir, ".sql");
 copyFilesByExtension(llmTemplateSourceDir, llmTemplateOutputDir, ".njk");
+copyFilesByExtension(electronAssetsSourceDir, electronAssetsOutputDir, ".png");

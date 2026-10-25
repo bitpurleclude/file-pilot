@@ -27,6 +27,8 @@ export class SettingsAutosaveController {
   private queued: { settings: AppSettings; mode: SettingsUpdateMode } | null = null;
   private disposed = false;
   private latestSettings: AppSettings | null = null;
+  private lastPersisted: AppSettings | null = null;
+  private inFlight: Promise<void> | null = null;
 
   public constructor(private readonly options: SettingsAutosaveControllerOptions) {
     this.options.onStateChange({ status: "idle" });
@@ -46,7 +48,7 @@ export class SettingsAutosaveController {
 
     this.clearTimer();
     this.timer = setTimeout(() => {
-      void this.persist(settings);
+      void this.startPersist(settings);
     }, this.options.debounceMs);
   }
 
@@ -57,36 +59,28 @@ export class SettingsAutosaveController {
     this.schedule(this.latestSettings, "immediate");
   }
 
+  /**
+   * Cancels a pending debounce and waits for all in-flight/queued saves.
+   * Used when the settings window is closing so the last edit is not lost.
+   */
+  public async flush(): Promise<void> {
+    if (this.disposed) {
+      return;
+    }
+    this.clearTimer();
+
+    while (this.inFlight !== null) {
+      await this.inFlight;
+    }
+
+    if (this.latestSettings !== null && this.latestSettings !== this.lastPersisted) {
+      await this.startPersist(this.latestSettings);
+    }
+  }
+
   public dispose(): void {
     this.disposed = true;
     this.clearTimer();
-  }
-
-  /** 冲刷挂起的防抖/排队修改（若有）；进行中的保存由其 finally 继续处理排队项。 */
-  public async flush(): Promise<void> {
-    if (this.isSaving || this.disposed) {
-      return;
-    }
-
-    if (this.timer !== null) {
-      this.clearTimer();
-      if (this.latestSettings !== null) {
-        await this.persist(this.latestSettings);
-      }
-      return;
-    }
-
-    if (this.queued !== null) {
-      const next = this.queued;
-      this.queued = null;
-      await this.persist(next.settings);
-    }
-  }
-
-  /** 冲刷后销毁：供页面卸载时保住最后一批未保存修改。 */
-  public async disposeAfterFlush(): Promise<void> {
-    await this.flush();
-    this.dispose();
   }
 
   private scheduleImmediate(settings: AppSettings): void {
@@ -95,37 +89,44 @@ export class SettingsAutosaveController {
       return;
     }
     this.clearTimer();
-    void this.persist(settings);
+    void this.startPersist(settings);
   }
 
-  private async persist(settings: AppSettings): Promise<void> {
+  private startPersist(settings: AppSettings): Promise<void> {
     if (this.disposed) {
-      return;
+      return Promise.resolve();
     }
 
     this.isSaving = true;
     this.options.onStateChange({ status: "saving" });
 
-    try {
-      await this.options.save(settings);
-      if (!this.disposed) {
-        this.options.onStateChange({ status: "saved" });
+    const task = (async (): Promise<void> => {
+      try {
+        await this.options.save(settings);
+        if (!this.disposed) {
+          this.lastPersisted = settings;
+          this.options.onStateChange({ status: "saved" });
+        }
+      } catch (error) {
+        if (!this.disposed) {
+          this.options.onStateChange({
+            status: "error",
+            errorMessage: toErrorMessage(error)
+          });
+        }
+      } finally {
+        this.isSaving = false;
+        this.inFlight = null;
+        if (this.queued !== null) {
+          const next = this.queued;
+          this.queued = null;
+          this.schedule(next.settings, next.mode);
+        }
       }
-    } catch (error) {
-      if (!this.disposed) {
-        this.options.onStateChange({
-          status: "error",
-          errorMessage: toErrorMessage(error)
-        });
-      }
-    } finally {
-      this.isSaving = false;
-      if (this.queued !== null) {
-        const next = this.queued;
-        this.queued = null;
-        this.schedule(next.settings, next.mode);
-      }
-    }
+    })();
+
+    this.inFlight = task;
+    return task;
   }
 
   private clearTimer(): void {

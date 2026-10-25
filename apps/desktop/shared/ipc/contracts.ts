@@ -263,8 +263,37 @@ export const IPC_CHANNELS = {
   registryCreateProject: "fp:registry-create-project",
   registryArchive: "fp:registry-archive",
   registryCheckDuplicate: "fp:registry-check-duplicate",
-  registryProposals: "fp:registry-proposals"
+  registryProposals: "fp:registry-proposals",
+  openSettings: "fp:open-settings",
+  hidePopover: "fp:hide-popover",
+  closeSettings: "fp:close-settings",
+  openWorkspace: "fp:open-workspace",
+  pickFiles: "fp:pick-files",
+  resizePopover: "fp:resize-popover",
+  confirmSettingsClose: "fp:confirm-settings-close",
+  popoverShown: "fp:popover-shown",
+  settingsCloseRequested: "fp:settings-close-requested"
 } as const;
+
+// ==== Window / shell actions (tray-first UI) ====
+
+export const openSettingsRequestSchema = z.object({}).default({});
+export const hidePopoverRequestSchema = z.object({}).default({});
+export const closeSettingsRequestSchema = z.object({}).default({});
+export const openWorkspaceRequestSchema = z.object({}).default({});
+export const pickFilesRequestSchema = z.object({}).default({});
+export const resizePopoverRequestSchema = z.object({
+  height: z.number().int().min(260).max(680)
+}).strict();
+export const confirmSettingsCloseRequestSchema = z.object({}).default({});
+
+export interface PickFilesData {
+  paths: string[];
+}
+
+export interface OpenWorkspaceData {
+  opened: boolean;
+}
 
 // ==== Registry (governance layer stage 1: birth protocol) ====
 

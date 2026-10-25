@@ -4,7 +4,11 @@ import { join } from "node:path";
 
 import { expect, test, type ElectronApplication, type Page } from "@playwright/test";
 
-import { launchElectronApp } from "./helpers/electron-launch.js";
+import {
+  closeSettingsWindow,
+  launchElectronApp,
+  openSettingsWindow
+} from "./helpers/electron-launch.js";
 
 const SANDBOX_TMP_PREFIX = "file-pilot-e2e-ui-settings-sandbox-";
 
@@ -16,14 +20,14 @@ const firstWindow = async (app: ElectronApplication): Promise<Page> => {
 
 const analyzeButton = (page: Page) => page.getByRole("button", { name: "分析并规划" });
 
-const openSettings = async (page: Page): Promise<void> => {
-  await page.locator('[data-testid="open-settings"]').click();
-  await expect(page.getByRole("heading", { name: "设置" })).toBeVisible();
+const openSettings = async (app: ElectronApplication, popoverPage: Page): Promise<Page> => {
+  const settingsPage = await openSettingsWindow(app, popoverPage);
+  await expect(settingsPage.getByRole("heading", { name: "设置" })).toBeVisible();
+  return settingsPage;
 };
 
-const goBackToMain = async (page: Page): Promise<void> => {
-  await page.locator('[data-testid="settings-back"]').click();
-  await expect(page.getByRole("heading", { name: "File-Pilot" })).toBeVisible();
+const goBackToMain = async (settingsPage: Page): Promise<void> => {
+  await closeSettingsWindow(settingsPage);
 };
 
 test("gear button opens settings page and back returns to main", async () => {
@@ -32,19 +36,19 @@ test("gear button opens settings page and back returns to main", async () => {
   const electronApp = await launchElectronApp();
 
   try {
-    const page = await firstWindow(electronApp);
+    const popover = await firstWindow(electronApp);
 
     // Main page is ready once the bootstrap has shown the first-run wizard.
-    await expect(page.locator("section.wizard")).toBeVisible();
+    await expect(popover.locator("section.wizard")).toBeVisible();
 
-    await openSettings(page);
-    await expect(page.locator('[data-testid="settings-autosave-status"]')).toHaveText("等待修改");
-    await expect(page.locator('[data-testid="settings-tab-general"]')).toBeVisible();
-    await expect(page.locator('[data-testid="settings-tab-llm"]')).toBeVisible();
+    const settings = await openSettings(electronApp, popover);
+    await expect(settings.locator('[data-testid="settings-autosave-status"]')).toHaveText("等待修改");
+    await expect(settings.locator('[data-testid="settings-tab-general"]')).toBeVisible();
+    await expect(settings.locator('[data-testid="settings-tab-llm"]')).toBeVisible();
 
-    await goBackToMain(page);
-    await expect(page.locator('[data-testid="app-message"]')).toBeVisible();
-    await expect(analyzeButton(page)).toBeDisabled();
+    await goBackToMain(settings);
+    await expect(popover.locator('[data-testid="app-message"]')).toBeVisible();
+    await expect(analyzeButton(popover)).toBeDisabled();
   } finally {
     await electronApp.close();
   }
@@ -60,22 +64,50 @@ test("read-only switch autosaves and main page reflects read-only mode", async (
   const electronApp = await launchElectronApp();
 
   try {
-    const page = await firstWindow(electronApp);
-    await openSettings(page);
+    const popover = await firstWindow(electronApp);
+    const settings = await openSettings(electronApp, popover);
 
     // The General tab is the default; it hosts the only visible switch.
-    const readOnlySwitch = page.getByRole("switch");
+    const readOnlySwitch = settings.getByRole("switch");
     await expect(readOnlySwitch).toHaveCount(1);
     await readOnlySwitch.click();
 
     // Toggling saves immediately (no debounce); saving flashes briefly.
-    await expect(page.locator('[data-testid="settings-autosave-status"]')).toHaveText("已保存", {
+    await expect(settings.locator('[data-testid="settings-autosave-status"]')).toHaveText("已保存", {
       timeout: 10_000
     });
 
-    await goBackToMain(page);
-    await expect(page.locator('[data-testid="status-read-only"]')).toHaveText("当前模式：只读");
-    await expect(analyzeButton(page)).toBeDisabled();
+    await goBackToMain(settings);
+    // Closing settings re-shows the popover, which refetches settings.
+    await expect(popover.locator('[data-testid="status-read-only"]')).toHaveText("当前模式：只读", {
+      timeout: 10_000
+    });
+    await expect(analyzeButton(popover)).toBeDisabled();
+  } finally {
+    await electronApp.close();
+  }
+});
+
+test("closing settings flushes a pending debounced change", async () => {
+  test.setTimeout(90_000);
+
+  const electronApp = await launchElectronApp();
+
+  try {
+    const popover = await firstWindow(electronApp);
+    const settings = await openSettings(electronApp, popover);
+
+    await settings.locator('[data-testid="settings-tab-classification"]').click();
+    const threshold = settings.locator("#highConfidenceMin");
+    await expect(threshold).toHaveValue("0.85");
+    await threshold.fill("0.9");
+
+    // Close before the 600ms debounce fires; the close handshake must flush it.
+    await goBackToMain(settings);
+
+    const reopened = await openSettings(electronApp, popover);
+    await reopened.locator('[data-testid="settings-tab-classification"]').click();
+    await expect(reopened.locator("#highConfidenceMin")).toHaveValue("0.9");
   } finally {
     await electronApp.close();
   }
@@ -116,7 +148,7 @@ test("language saved through settings API re-applies on relaunch", async () => {
 
     // The UI comes up in English: bootstrap applied the persisted language.
     await expect(page.getByRole("heading", { name: /First Run Whitelist Setup/ })).toBeVisible();
-    await expect(page.locator('[data-testid="dropzone"]')).toHaveText("Drop files here");
+    await expect(page.locator('[data-testid="dropzone"]')).toContainText("Drop files here");
     await expect(page.getByRole("button", { name: "Settings" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Analyze and Plan" })).toBeDisabled();
   } finally {
@@ -134,16 +166,16 @@ test("language switch through the settings UI select persists", async () => {
 
   const firstApp = await launchElectronApp({ userDataDir });
   try {
-    const page = await firstWindow(firstApp);
-    await openSettings(page);
+    const popover = await firstWindow(firstApp);
+    const settings = await openSettings(firstApp, popover);
 
     // The General tab hosts the language select (the only combobox there).
-    await page.getByRole("combobox").click();
-    await page.getByRole("option", { name: "English" }).click();
+    await settings.getByRole("combobox").click();
+    await settings.getByRole("option", { name: "English" }).click();
 
-    // Language change saves immediately and re-renders the page in English.
-    await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
-    await expect(page.locator('[data-testid="settings-autosave-status"]')).toHaveText("Saved", {
+    // Language change saves immediately and re-renders the settings window.
+    await expect(settings.getByRole("heading", { name: "Settings" })).toBeVisible();
+    await expect(settings.locator('[data-testid="settings-autosave-status"]')).toHaveText("Saved", {
       timeout: 10_000
     });
   } finally {
@@ -166,24 +198,24 @@ test("LLM panel lists the default OpenAI provider with a preset dropdown", async
   const electronApp = await launchElectronApp();
 
   try {
-    const page = await firstWindow(electronApp);
-    await openSettings(page);
+    const popover = await firstWindow(electronApp);
+    const settings = await openSettings(electronApp, popover);
 
-    await page.locator('[data-testid="settings-tab-llm"]').click();
-    await expect(page.getByText("供应商列表")).toBeVisible();
+    await settings.locator('[data-testid="settings-tab-llm"]').click();
+    await expect(settings.getByText("供应商列表")).toBeVisible();
 
     // Fresh settings contain exactly one default OpenAI preset provider.
     // .first(): the protocol select trigger also renders the label "OpenAI".
-    await expect(page.getByText("OpenAI", { exact: true }).first()).toBeVisible();
-    const deleteButtons = page.getByRole("button", { name: "删除" });
+    await expect(settings.getByText("OpenAI", { exact: true }).first()).toBeVisible();
+    const deleteButtons = settings.getByRole("button", { name: "删除" });
     await expect(deleteButtons).toHaveCount(1);
 
     // The add-provider dropdown opens and lists the custom entry plus all
     // eight built-in presets.
-    await page.locator('[role="combobox"]').filter({ hasText: "添加供应商" }).click();
-    await expect(page.getByRole("option", { name: "自定义供应商" })).toBeVisible();
-    await expect(page.getByRole("option", { name: "DeepSeek" })).toBeVisible();
-    await page.keyboard.press("Escape");
+    await settings.locator('[role="combobox"]').filter({ hasText: "添加供应商" }).click();
+    await expect(settings.getByRole("option", { name: "自定义供应商" })).toBeVisible();
+    await expect(settings.getByRole("option", { name: "DeepSeek" })).toBeVisible();
+    await settings.keyboard.press("Escape");
   } finally {
     await electronApp.close();
   }
@@ -197,17 +229,17 @@ test("adding a custom provider through the preset dropdown commits", async () =>
   const electronApp = await launchElectronApp();
 
   try {
-    const page = await firstWindow(electronApp);
-    await openSettings(page);
+    const popover = await firstWindow(electronApp);
+    const settings = await openSettings(electronApp, popover);
 
-    await page.locator('[data-testid="settings-tab-llm"]').click();
-    const deleteButtons = page.getByRole("button", { name: "删除" });
+    await settings.locator('[data-testid="settings-tab-llm"]').click();
+    const deleteButtons = settings.getByRole("button", { name: "删除" });
     await expect(deleteButtons).toHaveCount(1);
 
-    await page.locator('[role="combobox"]').filter({ hasText: "添加供应商" }).click();
-    await page.getByRole("option", { name: "自定义供应商" }).click();
+    await settings.locator('[role="combobox"]').filter({ hasText: "添加供应商" }).click();
+    await settings.getByRole("option", { name: "自定义供应商" }).click();
 
-    await expect(page.getByText("自定义供应商", { exact: true }).first()).toBeVisible();
+    await expect(settings.getByText("自定义供应商", { exact: true }).first()).toBeVisible();
     await expect(deleteButtons).toHaveCount(2);
   } finally {
     await electronApp.close();

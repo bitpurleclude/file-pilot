@@ -1,9 +1,10 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 
- import "./i18n.js";
+import "./i18n.js";
 
 import { App } from "./pages/app.js";
+import { SettingsApp } from "./pages/settings/settings-app.js";
 import "./styles.css";
 
 const reportClientError = async (payload: { code: string; message: string; details?: Record<string, unknown> }) => {
@@ -39,8 +40,11 @@ if (root === null) {
   throw new Error("Root element missing");
 }
 
+const view = new URLSearchParams(window.location.search).get("view");
+document.body.dataset.view = view === "settings" ? "settings" : "popover";
+
 createRoot(root).render(
   <React.StrictMode>
-    <App />
+    {view === "settings" ? <SettingsApp /> : <App />}
   </React.StrictMode>
 );

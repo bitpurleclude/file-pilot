@@ -34,6 +34,11 @@
     "rollbackRequiresAnalyze": "Analyze files first, then rollback",
     "rollbackCompleted": "Rollback completed",
     "rollbackFailed": "Rollback failed: {{message}}",
+    "readOnlyBlocksApply": "Read-only mode blocks file operations",
+    "applyRequiresAnalyze": "Analyze files first, then apply the plan",
+    "applyConfirm": "Click Apply again to move the files",
+    "applyCompleted": "Plan applied",
+    "applyFailed": "Apply failed: {{message}}",
     "logsExported": "Logs exported: {{path}}",
     "logsExportFailed": "Export logs failed: {{message}}",
     "checkingUpdates": "Checking updates...",
@@ -66,9 +71,22 @@
   "actions": {
     "analyze": "Analyze and Plan",
     "dryRun": "Dry-run",
+    "apply": "Apply plan",
+    "confirmApply": "Confirm move",
     "rollback": "Rollback",
     "newSession": "New Session",
     "newSessionReady": "New session started; previous results cleared"
+  },
+  "popover": {
+    "ready": "Tray mode · ready",
+    "browseHint": "Click to browse, or drop files anywhere here",
+    "filesSelected": "{{count}} selected",
+    "planEyebrow": "Placement plan",
+    "planTitle": "{{count}} files ready",
+    "needsInput": "Needs input",
+    "moreItems": "+{{count}} more",
+    "openWorkspace": "Open workspace",
+    "localFirst": "Local-first"
   },
   "wizard": {
     "title": "First Run Whitelist Setup ({{step}} / 3)",
@@ -143,6 +161,15 @@
       "askThreshold": "Follow-up Threshold",
       "ruleLearningEnabled": "Enable Rule Learning",
       "autoApplyThreshold": "Auto Apply Threshold"
+    },
+    "rules": {
+      "title": "Rules",
+      "description": "Deterministic matches that skip the LLM path.",
+      "empty": "No learned rules yet. Corrections with \"Save as rule\" appear here."
+    },
+    "updates": {
+      "title": "Updates",
+      "description": "Check, verify, and install signed-channel releases."
     },
     "llm": {
       "title": "LLM Configuration",
