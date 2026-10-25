@@ -53,9 +53,12 @@ const createMainWindow = async (): Promise<BrowserWindow> => {
     }
   });
 
-  // 渲染层只加载本地打包资源；禁止任何远程导航与新窗口。
-  win.webContents.on("will-navigate", (event) => {
-    event.preventDefault();
+  // 渲染层只加载本地打包资源；允许 file:// 初始导航（loadFile 也走
+  // will-navigate），拦截一切远程/其他协议导航与新窗口。
+  win.webContents.on("will-navigate", (event, url) => {
+    if (!url.startsWith("file://")) {
+      event.preventDefault();
+    }
   });
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
 

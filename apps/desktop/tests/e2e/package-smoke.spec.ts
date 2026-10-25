@@ -53,7 +53,7 @@ test("packaged win-unpacked app starts and preload API is available", async () =
     const page = await app.firstWindow();
     await page.waitForLoadState("domcontentloaded");
 
-    await expect(page.getByRole("heading", { name: "File-Pilot M2/M3" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "File-Pilot" })).toBeVisible();
 
     const apiReady = await page.evaluate(async ({ sandboxDir, samplePath }) => {
       if (window.filePilotApi === undefined) {

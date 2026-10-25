@@ -15,7 +15,7 @@ test("app starts with sqlite migration enabled and analyze still works", async (
   try {
     const page = await electronApp.firstWindow();
     await page.waitForLoadState("domcontentloaded");
-    await expect(page.getByRole("heading", { name: "File-Pilot M2/M3" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "File-Pilot" })).toBeVisible();
 
     const result = await page.evaluate(async ({ dir, filePath }) => {
       if (window.filePilotApi === undefined) {

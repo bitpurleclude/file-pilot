@@ -74,6 +74,11 @@
       "output": "release"
     },
     "npmRebuild": false,
+    "publish": {
+      "provider": "github",
+      "owner": "bitpurleclude",
+      "repo": "file-pilot"
+    },
     "win": {
       "signAndEditExecutable": false,
       "target": [

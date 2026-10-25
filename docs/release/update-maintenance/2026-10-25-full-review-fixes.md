@@ -92,5 +92,15 @@
 - `export-logs.ts` 匿名化增强（见第 3 条边界说明）+ 2 个测试
 - `reportClientError` 渲染层文本压控制字符 + 限长 2000（日志注入防护）
 - 移除 `UPDATER_CONFIG.installPrompt` 死配置
-- 渲染层完整审查（此前缺口）及对应修复
-- 打包/e2e/QA 验证结果（见下方追加验证证据）
+- 渲染层完整审查（此前缺口）及对应修复：拖放路径经 preload 的 `webUtils.getPathForFile` 恢复（Electron 33 下主流程不可用的 P1）；`saveWhitelist`/`setReadOnlyMode` 返回值成为渲染层唯一事实来源（防旧快照静默清空白名单/关只读）；autosave 控制器页面级生命周期 + 卸载冲刷；bootstrap 与 `t` 解耦防语言切换重跑向导；会话主链路互斥守卫 + 按钮禁用；更新通道切换防错配；阈值/白名单输入本地草稿；类型与 preload 同源去重；死导入/死键/调试 JSON dump 清理
+- `package.json` build 补 `publish`（github provider）——修复 electron-builder 在无 publish 配置时生成更新元数据的空指针崩溃（基线问题，产物本可产出但任务以错误收尾）
+- `will-navigate` 拦截修正为仅拦非 `file://` 导航（无条件 preventDefault 会阻断 loadFile 初始加载）
+- 修正 3 个 e2e 用例的陈旧标题断言（`File-Pilot M2/M3` → `File-Pilot`；**基线 0238c6e 上即为失败状态**，e2e 此前从未在本分支运行过）
+
+## 追加验证证据（同日第二轮）
+
+- `npx tsc --noEmit` → 0 错误；`npx eslint .` → 0 错误
+- unit+integration → **86/86 通过**（新增 5 个：白名单边界、project 消毒、key codec、LLM 网关错误分类、匿名化增强）
+- `npm run dist:win` → **干净退出（exit 0）**，产出 `release/File Pilot Setup 0.1.0.exe` + `win-unpacked`（未签名，见已知剩余风险第 1 条）
+- `FILE_PILOT_RUN_PACKAGED_SMOKE=1 npm run test:e2e` → **7/7 通过**，含打包冒烟（真实 win-unpacked 产物启动、preload API 注入、页面标题渲染）——**CSP meta 与 sandbox:true 在打包环境中实测通过**
+- `npm run test:qa` → 2/2 通过（100 文件性能 < 阈值；回滚成功率 > 99%）
