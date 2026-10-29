@@ -58,7 +58,7 @@
 
 - master 推送触发 CI Gates + Release Publish。Release Publish 两次在 meta 步骤静默失败（pwsh 异常被吞，本地同脚本通过；tag-check 诊断显示 exit=2 零匹配仍抛错）；重写该步骤（try/catch 点名异常 + 按输出文本判定 tag 存在性 + Add-Content 追加）后成功——幽灵根因未最终定位，但故障模式已被结构消除。
 - **稳定版 v0.1.0 已发布**（NSIS Setup + Portable + latest.yml，未签名）。
-- E2E Core：`language switch through the settings UI select persists` 在 CI 确定性失败（鼠标与键盘两种驱动均不生效；无 pageerror/console error；本地恒过；API 版持久化用例在 CI 绿）。已标记 CI-only skip 并注明原因，**根因跟进待办**。
+- E2E Core：`language switch through the settings UI select persists` 在 CI 确定性失败（鼠标与键盘两种驱动均不生效；无 pageerror/console error；本地恒过；API 版持久化用例在 CI 绿）。已标记 CI-only skip 并注明原因，根因跟进记录（含失败点取证与探针计划）见 `2026-10-29-language-switch-ci-root-cause.md`。
 - 后续：beta 分支推送 → v0.1.0-beta.N 预发布，点亮客户端默认 beta 通道（更新器只会选择 NSIS Setup 资产，已验证排除 portable）。
 
 ## 追加：发布管线终态（同日）
