@@ -99,17 +99,36 @@ jobs:
       - name: Build Windows installer
         run: npm run dist:win
 
-      - name: Ensure installer and metadata exist
+      - name: Ensure setup, portable and update metadata exist
         shell: pwsh
         run: |
-          $assets = Get-ChildItem -Path release -Filter *.exe -ErrorAction SilentlyContinue
-          if ($null -eq $assets -or $assets.Count -eq 0) {
-            throw "No installer asset found in release/*.exe"
-          }
+          try {
+            $ErrorActionPreference = "Stop"
+            $exes = @(Get-ChildItem -Path release -Filter *.exe -ErrorAction SilentlyContinue)
+            if ($exes.Count -eq 0) {
+              throw "No installer asset found in release/*.exe"
+            }
 
-          $metadata = Get-ChildItem -Path release -Filter latest*.yml -ErrorAction SilentlyContinue
-          if ($null -eq $metadata -or $metadata.Count -eq 0) {
-            throw "No update metadata found in release/latest*.yml"
+            # Releases must always ship both channels: the NSIS setup feeds the
+            # auto-updater, the portable build serves no-install usage. If either
+            # is missing the packaging config drifted and the release must fail.
+            $setup = @($exes | Where-Object { $_.Name -notmatch "Portable" })
+            $portable = @($exes | Where-Object { $_.Name -match "Portable" })
+            Write-Host "exe assets: $($exes.Name -join ', ')"
+            if ($setup.Count -eq 0) {
+              throw "No NSIS setup asset found in release/*.exe (expected an installer exe without 'Portable' in the name)."
+            }
+            if ($portable.Count -eq 0) {
+              throw "No portable asset found in release/*.exe (expected File-Pilot-*-Portable.exe; check win.target in package.json)."
+            }
+
+            $metadata = Get-ChildItem -Path release -Filter latest*.yml -ErrorAction SilentlyContinue
+            if ($null -eq $metadata -or $metadata.Count -eq 0) {
+              throw "No update metadata found in release/latest*.yml"
+            }
+          } catch {
+            Write-Host "ENSURE_FAILED: $($_.Exception.Message)"
+            exit 1
           }
 
       - name: Publish GitHub release
