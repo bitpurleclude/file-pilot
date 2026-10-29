@@ -22,7 +22,8 @@ Tray icon (right-click menu: Open / Settings / Open workspace / Quit)
 
 `apps/desktop/electron/main/window-manager.ts` owns:
 
-- popover creation, tray creation, positioning above/below the tray, show/hide/toggle, blur-hide with a 250ms tray-click guard;
+- popover creation, tray creation, positioning above/below the tray, show/hide/toggle with a 250ms tray-click reopen guard. The popover does NOT auto-hide on blur (so dragging files in or switching windows never dismisses it); dismissal is explicit: Esc, the card close button, tray-icon toggle, or opening settings;
+- native window shadow is off for the popover (`hasShadow: false`): a transparent frameless window's native shadow follows the rectangular window bounds and would stack a hard boxy shadow under the rounded card. The shadow is drawn by `.popover-card` CSS inside a 16px transparent window gutter.
 - settings window creation/focus/close; closing settings re-shows the popover;
 - `openWorkspace` (`shell.openPath`) and `pickFiles` (`dialog.showOpenDialog`);
 - `resizePopover(height)` for content-driven height (clamped by IPC schema).
