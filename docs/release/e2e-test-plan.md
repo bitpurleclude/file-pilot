@@ -1,0 +1,60 @@
+# E2E 测试规划（全面性保障）
+
+## 目标
+
+- 覆盖 M1 主路径与高风险异常路径，重点防“安装后白屏”和 IPC 断链。
+- 与发布门禁对齐：`typecheck/lint/unit/integration/e2e` 全绿。
+
+## 测试分层
+
+1. Unit：纯函数与规则（已覆盖）
+2. Integration：用例编排、日志落盘、导出聚合（已覆盖/持续补齐）
+3. E2E：应用启动与用户关键流程（本规划重点）
+
+## E2E 场景矩阵
+
+### A. 启动与稳定性
+
+- A1: 首次启动渲染成功（无白屏）
+- A2: preload API 注入成功（`window.filePilotApi` 可用）
+- A3: 主进程异常可记录日志
+
+### B. 业务主路径
+
+- B1: 设置白名单 -> 拖拽文件 -> 分析成功
+- B2: Dry-run 成功且不改动源文件
+- B3: 回滚入口可执行并返回成功
+- B4: 导出日志成功且文件可读
+
+### C. 异常与边界
+
+- C1: 非白名单路径分析被拒绝且有错误码
+- C2: LLM 返回非法 JSON 时回退到本地规则
+- C3: IPC handler 抛错时 UI 可见失败消息且日志落盘
+
+### D. 打包后验证
+
+- D1: 安装包启动成功
+- D2: 首屏渲染成功
+- D3: 基础按钮可点击且 IPC 可返回
+
+## 实施建议
+
+- 工具：Playwright（Electron 模式）+ 打包后 smoke 脚本
+- 数据：使用临时目录沙箱，禁止污染真实目录
+- 稳定性：固定超时、重试策略、失败自动抓取日志与截图
+
+## 里程碑
+
+1. M1.1：先落地 A/B 基础场景
+2. M1.2：补齐 C 异常场景
+3. M1.3：接入 D 打包后 smoke 到发布流程
+
+## 原未拍板项的现状（2026-10-29 入库时更新）
+
+- CI 执行环境：**已拍板**——无头 Windows runner + Playwright Electron 模式，CI Gates 全量 UI e2e 稳定运行。已知例外：语言切换 radix Select 交互用例在 CI 恒败，已 CI-only skip（证据链见该用例注释，根因跟进待办）。
+- 安装包 smoke 执行频率：**已拍板**——CI Gates 的 Package Smoke (Windows NSIS) job 每次运行执行（`FILE_PILOT_RUN_PACKAGED_SMOKE=1`）；发布流水线（release-publish）另有产物完整性守卫（Setup + Portable + latest.yml 缺一即失败）。是否追加夜间构建暂无必要。
+
+## 修订记录
+
+- 2026-10-29：文档入库；两项原未拍板项按现状落定。

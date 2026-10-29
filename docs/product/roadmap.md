@@ -72,15 +72,11 @@
 
 ## 与现有分支的关系
 
-本路线图建立在以下工作之上（构成 master 之上的线性分支栈，均未合并 master）：
+本文档集写作时依赖的线性分支栈（`transition-provider-only-wip`、`feat/deliverable-fixes-20261006`、`feat/e2e-remediation-20261006`、`docs/product-governance-vision`）已于 **2026-10-25 全部收敛合并进 master**（记录见 `docs/release/update-maintenance/2026-10-25-branch-convergence.md`），此后的实现工作（如登记册 stage 1、托盘 UI、发布管线）均已落在 master 线性历史中。
 
-- `transition-provider-only-wip`（`0238c6e`）：provider-only 设置重构（WIP；其门禁修复落在子提交 `90cdcae`）
-- `feat/deliverable-fixes-20261006`（`90cdcae`）：安全/可靠性加固 + 便携版打包（门禁全绿基线，验证记录见 `docs/release/deliverable-20261006.md`）
-- `feat/e2e-remediation-20261006`（`3935f18`）：测试隔离基建 + LLM stub + UI e2e（治理层的 e2e 直接复用该基建）
-- `docs/product-governance-vision`（`49ecb58`）：本文档集
-
-实施时以栈顶分支（`feat/e2e-remediation-20261006` 或其后续）为基线续开新分支，PR 栈依次叠加；任何门禁验证结论须注明所验证的 commit（格式参考 `deliverable-20261006.md`）。
+实施基线即 master 本身；新工作按仓库 AGENTS.md 约定在 `.worktrees/` 下的独立 worktree 分支进行，完成后合回 master。任何门禁验证结论仍须注明所验证的 commit（格式参考 `deliverable-20261006.md`）。
 
 ## 修订记录
 
+- v1.2（2026-10-29）：「与现有分支的关系」更新为收敛后现状（原分支栈已并入 master）。
 - v1.1（2026-10-11）：分支栈现状与基线 commit 写明（含验证基线要求）；阶段④案例名增加脱敏说明。
