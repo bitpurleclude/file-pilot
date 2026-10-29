@@ -3,8 +3,8 @@ import { join } from "node:path";
 
 import { IPC_CHANNELS } from "../../shared/ipc/contracts.js";
 
-const POPOVER_WIDTH = 396;
-const POPOVER_HEIGHT = 640;
+const POPOVER_WIDTH = 428;
+const POPOVER_HEIGHT = 672;
 const SETTINGS_WIDTH = 1060;
 const SETTINGS_HEIGHT = 760;
 const REOPEN_GUARD_MS = 250;
@@ -169,7 +169,10 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
       fullscreenable: false,
       skipTaskbar: true,
       alwaysOnTop: true,
-      hasShadow: true,
+      // 透明无边框窗口的原生阴影跟随矩形窗口边界（而非渲染出的圆角卡片），
+      // 会叠出方形硬阴影；阴影由渲染层 .popover-card 的 box-shadow 绘制，
+      // 窗口四周预留 16px 透明边距容纳它。
+      hasShadow: false,
       webPreferences: {
         preload: options.preloadPath,
         backgroundThrottling: false,
@@ -192,21 +195,8 @@ export const createWindowManager = (options: WindowManagerOptions): WindowManage
       }
     });
 
-    popoverWindow.on("blur", () => {
-      if (options.hideWindows || quitting) {
-        return;
-      }
-      setTimeout(() => {
-        if (popoverWindow === null || !popoverWindow.isVisible()) {
-          return;
-        }
-        if (settingsWindow?.isFocused() || popoverWindow.webContents.isDevToolsOpened()) {
-          return;
-        }
-        hidePopover();
-      }, 120);
-    });
-
+    // 悬浮窗不随失焦自动隐藏（否则从资源管理器拖文件、切窗口即消失）。
+    // 显式关闭路径：Esc / 卡片关闭按钮 / 托盘图标切换 / 打开设置。
     popoverWindow.on("close", (event) => {
       if (!quitting) {
         event.preventDefault();
