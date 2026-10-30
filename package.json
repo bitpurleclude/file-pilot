@@ -1,6 +1,6 @@
 {
   "name": "file-pilot",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "main": "dist/electron/main.cjs",
@@ -101,7 +101,8 @@
       "perMachine": false,
       "allowToChangeInstallationDirectory": true,
       "installerIcon": "resources/icon.ico",
-      "uninstallerIcon": "resources/icon.ico"
+      "uninstallerIcon": "resources/icon.ico",
+      "artifactName": "File-Pilot-Setup-${version}.${ext}"
     },
     "portable": {
       "artifactName": "File-Pilot-${version}-Portable.exe"

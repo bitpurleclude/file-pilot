@@ -76,8 +76,14 @@ Run from repository root: `D:\code\windsurf\file-pilot`.
 
 ## 4) Packaging & Release Notes
 
-- Installer output path typically:
-  - `release/File Pilot Setup 0.1.0.exe`
+- Installer output path:
+  - `release/File-Pilot-Setup-<version>.exe` (portable: `release/File-Pilot-<version>-Portable.exe`)
+- Artifact names must contain NO spaces: electron-builder writes the
+  latest.yml update URL with hyphen-sanitized names while the GitHub
+  publisher replaces spaces with dots, so a spaced default name makes the
+  updater download URL mismatch the uploaded asset (broken auto-update,
+  0.1.0/0.1.1 were affected). Keep `nsis.artifactName` / `portable.artifactName`
+  space-free — do not revert to the `${productName} Setup ${version}.${ext}` default.
 - Build config is in `package.json` under `build`.
 - Signing is intentionally disabled for current phase:
   - `forceCodeSigning: false`
